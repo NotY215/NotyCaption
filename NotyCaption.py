@@ -89,7 +89,6 @@ DEVANAGARI_ROMAN = {
     'श': 'sh',  'ष': 'sh',  'स': 's',   'ह': 'h',
     'क्ष': 'ksh', 'त्र': 'tr', 'ज्ञ': 'gya',
     'ऋ': 'ri',  'ॠ': 'rr',
-    # Additional mappings if needed
 }
 
 JAPANESE_ROMAJI = {
@@ -103,10 +102,8 @@ JAPANESE_ROMAJI = {
     'や': 'ya', 'ゆ': 'yu', 'よ': 'yo',
     'ら': 'ra', 'り': 'ri', 'る': 'ru', 'れ': 're', 'ろ': 'ro',
     'わ': 'wa', 'を': 'wo', 'ん': 'n',
-    # Katakana mappings (same romanization)
     'ア': 'a', 'イ': 'i', 'ウ': 'u', 'エ': 'e', 'オ': 'o',
     'カ': 'ka', 'キ': 'ki', 'ク': 'ku', 'ケ': 'ke', 'コ': 'ko',
-    # Add more as needed
 }
 
 def romanize_text(text, lang):
@@ -401,7 +398,7 @@ class NotyCaptionWindow(QMainWindow):
         self.input_file = None
         self.audio_file = None
         self.output_folder = None
-        self.subtitles = []
+        self.subtitles = []           # list of dicts: {"index":int, "start":timedelta, "end":timedelta, "text":str (with roman), "raw_text":str}
         self.player = QMediaPlayer()
         self.player.mediaStatusChanged.connect(self.media_status)
         self.player.positionChanged.connect(self.position_changed)
@@ -482,9 +479,6 @@ class NotyCaptionWindow(QMainWindow):
                 pass
         super().closeEvent(event)
 
-    # ──────────────────────────────────────────────
-    # WHISPER MODEL HANDLING
-    # ──────────────────────────────────────────────
     def load_whisper_model(self):
         model_name = "large-v3"
         model_filename = f"{model_name}.pt"
@@ -494,7 +488,6 @@ class NotyCaptionWindow(QMainWindow):
         if os.path.exists(user_model_file):
             return whisper.load_model(user_model_file)
 
-        # Default cache
         default_cache_dir = os.path.expanduser("~/.cache/whisper")
         default_model_file = os.path.join(default_cache_dir, model_filename)
         if os.path.exists(default_model_file):
@@ -502,13 +495,9 @@ class NotyCaptionWindow(QMainWindow):
             shutil.copy2(default_model_file, user_model_file)
             return whisper.load_model(user_model_file)
 
-        # Download
         os.makedirs(user_dir, exist_ok=True)
         return whisper.load_model(model_name, download_root=user_dir)
 
-    # ──────────────────────────────────────────────
-    # MEDIA HANDLING
-    # ──────────────────────────────────────────────
     def media_status(self, status):
         if status == QMediaPlayer.LoadedMedia:
             self.play_btn.setEnabled(True)
@@ -560,25 +549,26 @@ class NotyCaptionWindow(QMainWindow):
         cursor = QTextCursor(doc)
         cursor.beginEditBlock()
 
+        # Clear previous highlights
         clear_fmt = cursor.charFormat()
-        clear_fmt.setBackground(QColor(30,30,34))
+        clear_fmt.setBackground(QColor(30, 30, 34))
         cursor.select(QTextCursor.Document)
         cursor.setCharFormat(clear_fmt)
         cursor.clearSelection()
 
         for sub in self.subtitles:
             if sub["start"].total_seconds() <= sec < sub["end"].total_seconds():
-                cursor = QTextCursor(doc)
-                cursor.movePosition(QTextCursor.Start)
-                for _ in range(sub["index"] - 1):
-                    cursor.movePosition(QTextCursor.NextBlock)
-                cursor.movePosition(QTextCursor.StartOfBlock)
-                cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
-                fmt = cursor.charFormat()
-                fmt.setBackground(QColor(255, 215, 0, 160))
-                cursor.setCharFormat(fmt)
-                self.caption_edit.setTextCursor(cursor)
-                self.caption_edit.ensureCursorVisible()
+                # Find block by index (line number = index - 1)
+                block_num = sub["index"] - 1
+                block = doc.findBlockByNumber(block_num)
+                if block.isValid():
+                    cursor.setPosition(block.position())
+                    cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+                    fmt = cursor.charFormat()
+                    fmt.setBackground(QColor(255, 215, 0, 160))  # semi-transparent yellow
+                    cursor.setCharFormat(fmt)
+                    self.caption_edit.setTextCursor(cursor)
+                    self.caption_edit.ensureCursorVisible()
                 break
 
         cursor.endEditBlock()
@@ -586,19 +576,21 @@ class NotyCaptionWindow(QMainWindow):
     def on_text_select(self):
         if self.edit_active or not self.generated:
             return
-        sel = self.caption_edit.textCursor().selectedText().strip()
-        if not sel:
-            return
-        for sub in self.subtitles:
-            if sub["text"].strip() == sel or sub["raw_text"] == sel:
-                ms = int(sub["start"].total_seconds() * 1000)
-                self.player.setPosition(ms)
-                self.player.play()
-                break
 
-    # ──────────────────────────────────────────────
-    # IMPORT & OUTPUT
-    # ──────────────────────────────────────────────
+        cursor = self.caption_edit.textCursor()
+        if cursor.hasSelection():
+            sel = cursor.selectedText().strip()
+            if not sel:
+                return
+
+            # Try to match selected text to raw_text or full display text
+            for sub in self.subtitles:
+                if sel == sub["raw_text"] or sel == sub["text"] or sel in sub["text"]:
+                    ms = int(sub["start"].total_seconds() * 1000)
+                    self.player.setPosition(ms)
+                    self.player.play()
+                    break
+
     def import_file(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select Video or Audio", "", "Media (*.mp4 *.mkv *.avi *.mov *.mp3 *.wav)")
         if not path:
@@ -612,7 +604,6 @@ class NotyCaptionWindow(QMainWindow):
         temp_name = os.path.basename(path) + ".temp.wav"
         new_temp = os.path.join(temp_dir, temp_name)
 
-        # Delete previous temp if exists
         if self.last_temp_wav and os.path.exists(self.last_temp_wav):
             try:
                 os.remove(self.last_temp_wav)
@@ -642,15 +633,11 @@ class NotyCaptionWindow(QMainWindow):
             self.output_folder = d
             self.out_folder_edit.setText(d)
 
-    # ──────────────────────────────────────────────
-    # GENERATE CAPTIONS WITH VOCAL ENHANCEMENT
-    # ──────────────────────────────────────────────
     def generate(self):
         if not self.audio_file or not os.path.exists(self.audio_file):
             QMessageBox.warning(self, "Error", "No audio loaded.")
             return
 
-        # Enhance vocals
         temp_dir = self.settings.get("temp_dir", QDir.tempPath())
         enhanced_audio = os.path.join(temp_dir, "enhanced_vocals.wav")
         separator = Separator('spleeter:2stems')
@@ -659,7 +646,7 @@ class NotyCaptionWindow(QMainWindow):
         if os.path.exists(vocals_path):
             shutil.move(vocals_path, enhanced_audio)
         else:
-            enhanced_audio = self.audio_file  # fallback
+            enhanced_audio = self.audio_file
 
         lang = self.lang_combo.currentText()
         lang_code = "ja" if lang == "japlish" else "hi" if lang == "hindi" else "en"
@@ -768,13 +755,11 @@ class NotyCaptionWindow(QMainWindow):
             QMessageBox.critical(self, "Failed", str(e))
 
         finally:
-            # Clean enhanced file
             if os.path.exists(enhanced_audio) and enhanced_audio != self.audio_file:
                 try:
                     os.remove(enhanced_audio)
                 except:
                     pass
-            # Clean spleeter output folder
             spleeter_out = os.path.join(temp_dir, os.path.basename(self.audio_file).replace('.wav', ''))
             if os.path.exists(spleeter_out):
                 shutil.rmtree(spleeter_out, ignore_errors=True)
@@ -802,7 +787,7 @@ class NotyCaptionWindow(QMainWindow):
                 for sub in self.subtitles:
                     if sub["index"] == idx:
                         sub["text"] = content
-                        sub["raw_text"] = content.split(' [')[0] if ' [' in content else content
+                        sub["raw_text"] = content.split('\n[')[0] if '\n[' in content else content
                         updated.append(sub)
                         break
             except:
