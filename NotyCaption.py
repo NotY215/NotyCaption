@@ -809,7 +809,7 @@ class NotyCaptionWindow(QMainWindow):
                 pass
         self.subtitles = updated
 
-if __name__ == "__module__":
+if __name__ == "__main__":
     app = QApplication(sys.argv)
     if os.path.exists('App.ico'):
         app.setWindowIcon(QIcon('App.ico'))
