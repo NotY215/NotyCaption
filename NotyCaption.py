@@ -680,7 +680,7 @@ class NotyCaptionWindow(QMainWindow):
             model = self.load_whisper_model()
             self.prog_main.setValue(15)
 
-            result = model.transcribe(enhanced_audio, language=lang_code, task=task, verbose=True)
+            result = model.transcribe(enhanced_audio, language=lang_code, task=task, verbose=True, word_timestamps=True)
             self.prog_main.setValue(70)
             self.prog_frame.setValue(100)
             self.prog_frame.setFormat("Frames done")
