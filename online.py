@@ -35,7 +35,7 @@ def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path)
         notebook_id = upload_file(self.service, temp_ipynb, "NotyCaption_Generator.ipynb")
         os.remove(temp_ipynb)
 
-        colab_url = f"https://colab.research.google.com/drive/{notebook_id}"
+        colab_url = f"https://colab.research.google.com/drive/{notebook_id}?authuser=0"
         webbrowser.open(colab_url)
 
         QMessageBox.information(self, "Colab Started",
@@ -81,161 +81,142 @@ def upload_file(service, filepath, filename, parent_id=None):
 
 
 def generate_notebook_content(audio_filename, words_per_line, fmt, output_name):
+
+    def code_cell(lines):
+        return {
+            "cell_type": "code",
+            "metadata": {},
+            "execution_count": None,
+            "outputs": [],
+            "source": lines
+        }
+
     notebook = {
         "nbformat": 4,
-        "nbformat_minor": 0,
+        "nbformat_minor": 2,
         "metadata": {
             "colab": {"provenance": []},
-            "kernelspec": {"name": "python3", "display_name": "Python 3"},
+            "kernelspec": {
+                "name": "python3",
+                "display_name": "Python 3"
+            },
             "language_info": {"name": "python"}
         },
         "cells": [
-            {
-                "cell_type": "code",
-                "source": [
-                    "# Install packages\n",
-                    "!pip install --quiet openai-whisper==20231117\n",
-                    "!pip install --quiet pysrt pysubs2\n",
-                    "print(\"Packages installed\")"
-                ]
-            },
-            {
-                "cell_type": "code",
-                "source": [
-                    "# Mount Drive\n",
-                    "from google.colab import drive\n",
-                    "drive.mount('/content/drive', force_remount=True)"
-                ]
-            },
-            {
-                "cell_type": "code",
-                "source": [
-                    "import whisper\n",
-                    "import pysrt\n",
-                    "import pysubs2\n",
-                    "from datetime import timedelta\n",
-                    "import os\n",
-                    "import shutil\n",
-                    "print(\"Imports done\")"
-                ]
-            },
-            {
-                "cell_type": "code",
-                "source": [
-                    "# ---------------- SETTINGS ----------------\n",
-                    "model_name = \"medium\"\n",  # Changed to medium for faster/safer loading
-                    f"audio_path = \"/content/drive/My Drive/uploads/{audio_filename}\"\n",
-                    f"output_path = \"/content/drive/My Drive/{output_name}\"\n",
-                    f"words_per_line = {words_per_line}  # change this to control subtitle chunk size\n",
-                    "# ------------------------------------------"
-                ]
-            },
-            {
-                "cell_type": "code",
-                "source": [
-                    "# Model storage paths\n",
-                    "drive_model_folder = \"/content/drive/My Drive/SrtModels\"\n",
-                    "os.makedirs(drive_model_folder, exist_ok=True)\n",
-                    "drive_model_path = os.path.join(drive_model_folder, f\"{model_name}.pt\")\n",
-                    "local_model_path = f\"/content/{model_name}.pt\"\n",
-                    "# Download model only once\n",
-                    "if os.path.exists(drive_model_path):\n",
-                    "    print(\"Found model in Drive → copying to Colab...\")\n",
-                    "    shutil.copyfile(drive_model_path, local_model_path)\n",
-                    "else:\n",
-                    "    print(\"Model not found in Drive → downloading...\")\n",
-                    "    model_temp = whisper.load_model(model_name)\n",
-                    "    shutil.copyfile(\n",
-                    "        f\"/root/.cache/whisper/{model_name}.pt\",\n",
-                    "        drive_model_path\n",
-                    "    )\n",
-                    "    shutil.copyfile(\n",
-                    "        f\"/root/.cache/whisper/{model_name}.pt\",\n",
-                    "        local_model_path\n",
-                    "    )\n",
-                    "    del model_temp\n",
-                    "print(\"Loading model...\")\n",
-                    "model = whisper.load_model(local_model_path)\n",
-                    "print(\"Model ready!\")"
-                ]
-            },
-            {
-                "cell_type": "code",
-                "source": [
-                    "# Transcribe\n",
-                    "print(f\"Transcribing: {audio_path}\")\n",
-                    "result = model.transcribe(\n",
-                    "    audio_path,\n",
-                    "    language=\"en\",\n",
-                    "    task=\"transcribe\",\n",
-                    "    verbose=True,\n",
-                    "    word_timestamps=True\n",
-                    ")\n",
-                    "print(\"Transcription finished\")"
-                ]
-            },
-            {
-                "cell_type": "code",
-                "source": [
-                    "# Generate subtitles\n",
-                    "subtitles = []\n",
-                    "idx = 1\n",
-                    "for seg in result.get(\"segments\", []):\n",
-                    "    text = seg.get(\"text\", \"\").strip()\n",
-                    "    if not text:\n",
-                    "        continue\n",
-                    "    start = seg.get(\"start\", 0)\n",
-                    "    end = seg.get(\"end\", start + 1)\n",
-                    "    words = seg.get(\"words\", [])\n",
-                    "    if words:\n",
-                    "        word_texts = [w[\"word\"].strip() for w in words]\n",
-                    "        word_starts = [w.get(\"start\", start) for w in words]\n",
-                    "        word_ends = [w.get(\"end\", end) for w in words]\n",
-                    "    else:\n",
-                    "        word_texts = text.split()\n",
-                    "        duration = end - start\n",
-                    "        word_starts = [\n",
-                    "            start + i * duration / max(1, len(word_texts))\n",
-                    "            for i in range(len(word_texts))\n",
-                    "        ]\n",
-                    "        word_ends = word_starts[1:] + [end]\n",
-                    "    for i in range(0, len(word_texts), words_per_line):\n",
-                    "        chunk = word_texts[i:i + words_per_line]\n",
-                    "        line = \" \".join(chunk).strip()\n",
-                    "        if not line:\n",
-                    "            continue\n",
-                    "        st = word_starts[i]\n",
-                    "        en = word_ends[min(i + words_per_line - 1, len(word_ends) - 1)]\n",
-                    "        subtitles.append({\n",
-                    "            \"index\": idx,\n",
-                    "            \"start\": timedelta(seconds=st),\n",
-                    "            \"end\": timedelta(seconds=en),\n",
-                    "            \"text\": line\n",
-                    "        })\n",
-                    "        idx += 1\n",
-                    "print(f\"Generated {len(subtitles)} subtitle lines\")"
-                ]
-            },
-            {
-                "cell_type": "code",
-                "source": [
-                    "# Save SRT\n",
-                    "srt = pysrt.SubRipFile()\n",
-                    "for s in subtitles:\n",
-                    "    item = pysrt.SubRipItem(\n",
-                    "        index=s[\"index\"],\n",
-                    "        start=pysrt.SubRipTime(milliseconds=int(s[\"start\"].total_seconds()*1000)),\n",
-                    "        end=pysrt.SubRipTime(milliseconds=int(s[\"end\"].total_seconds()*1000)),\n",
-                    "        text=s[\"text\"]\n",
-                    "    )\n",
-                    "    srt.append(item)\n",
-                    "srt.save(output_path, encoding=\"utf-8\")\n",
-                    "print(f\"SRT saved → {output_path}\")\n",
-                    "print(\"\\nDone! You can close this tab now.\")"
-                ]
-            }
+
+            code_cell([
+                "# Install packages\n",
+                "!pip install --quiet openai-whisper==20231117\n",
+                "!pip install --quiet pysrt pysubs2\n",
+                "print('Packages installed')"
+            ]),
+
+            code_cell([
+                "from google.colab import drive\n",
+                "drive.mount('/content/drive', force_remount=True)"
+            ]),
+
+            code_cell([
+                "import whisper\n",
+                "import pysrt\n",
+                "import pysubs2\n",
+                "from datetime import timedelta\n",
+                "import os, shutil\n",
+                "print('Imports done')"
+            ]),
+
+            code_cell([
+                f"audio_path = '/content/drive/My Drive/uploads/{audio_filename}'\n",
+                f"output_path = '/content/drive/My Drive/{output_name}'\n",
+                f"words_per_line = {words_per_line}\n",
+                "model_name = 'medium'\n"
+            ]),
+
+            code_cell([
+                "drive_model_folder = '/content/drive/My Drive/SrtModels'\n",
+                "os.makedirs(drive_model_folder, exist_ok=True)\n",
+                "drive_model_path = os.path.join(drive_model_folder, f'{model_name}.pt')\n",
+                "local_model_path = f'/content/{model_name}.pt'\n",
+                "\n",
+                "if os.path.exists(drive_model_path):\n",
+                "    shutil.copyfile(drive_model_path, local_model_path)\n",
+                "else:\n",
+                "    model_temp = whisper.load_model(model_name)\n",
+                "    shutil.copyfile(f'/root/.cache/whisper/{model_name}.pt', drive_model_path)\n",
+                "    shutil.copyfile(f'/root/.cache/whisper/{model_name}.pt', local_model_path)\n",
+                "    del model_temp\n",
+                "\n",
+                "model = whisper.load_model(local_model_path)\n",
+                "print('Model ready!')"
+            ]),
+
+            code_cell([
+                "result = model.transcribe(\n",
+                "    audio_path,\n",
+                "    language='en',\n",
+                "    task='transcribe',\n",
+                "    word_timestamps=True\n",
+                ")\n",
+                "print('Transcription finished')"
+            ]),
+
+            code_cell([
+                "subtitles = []\n",
+                "idx = 1\n",
+                "for seg in result.get('segments', []):\n",
+                "    txt = seg.get('text', '').strip()\n",
+                "    if not txt:\n",
+                "        continue\n",
+                "    s = seg.get('start', 0)\n",
+                "    e = seg.get('end', s + 1)\n",
+                "    words = seg.get('words', [])\n",
+                "\n",
+                "    if words:\n",
+                "        w_txt = [w['word'].strip() for w in words]\n",
+                "        w_s = [w.get('start', s) for w in words]\n",
+                "        w_e = [w.get('end', e) for w in words]\n",
+                "    else:\n",
+                "        w_txt = txt.split()\n",
+                "        dur = e - s\n",
+                "        w_s = [s + i * dur / max(1, len(w_txt)) for i in range(len(w_txt))]\n",
+                "        w_e = w_s[1:] + [e]\n",
+                "\n",
+                "    for i in range(0, len(w_txt), words_per_line):\n",
+                "        chunk = w_txt[i:i + words_per_line]\n",
+                "        line = ' '.join(chunk).strip()\n",
+                "        if not line:\n",
+                "            continue\n",
+                "        st = w_s[i]\n",
+                "        en = w_e[min(i + words_per_line - 1, len(w_e) - 1)]\n",
+                "        subtitles.append({\n",
+                "            'index': idx,\n",
+                "            'start': timedelta(seconds=st),\n",
+                "            'end': timedelta(seconds=en),\n",
+                "            'text': line\n",
+                "        })\n",
+                "        idx += 1\n",
+                "\n",
+                "print(f'Generated {len(subtitles)} lines')"
+            ]),
+
+            code_cell([
+                "srt = pysrt.SubRipFile()\n",
+                "for s in subtitles:\n",
+                "    item = pysrt.SubRipItem(\n",
+                "        index=s['index'],\n",
+                "        start=pysrt.SubRipTime(milliseconds=int(s['start'].total_seconds()*1000)),\n",
+                "        end=pysrt.SubRipTime(milliseconds=int(s['end'].total_seconds()*1000)),\n",
+                "        text=s['text']\n",
+                "    )\n",
+                "    srt.append(item)\n",
+                "\n",
+                "srt.save(output_path, encoding='utf-8')\n",
+                "print('SRT saved →', output_path)\n",
+                "print('Done!')"
+            ])
         ]
     }
+
     return notebook
 
 
