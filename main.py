@@ -2,17 +2,11 @@
 # App name: NotyCaption
 # Developer: NotY215
 # All rights reserved by NotY215
-#
-# 2025-02-27 version with browser tab tracking simulation
-# (real tab tracking is very limited in desktop PyQt5 apps — this uses
-# polling + user confirmation + window focus events as best approximation)
 
 import sys
 import os
 import json
 import shutil
-import time
-import webbrowser
 from datetime import timedelta
 import whisper
 import psutil
@@ -26,23 +20,22 @@ from PyQt5.QtWidgets import (
     QCheckBox, QFrame
 )
 from PyQt5.QtGui import QIcon, QColor, QTextCursor, QFont, QPalette
-from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal, QRect, QEvent
+from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal, QRect
 from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from moviepy.editor import VideoFileClip, AudioFileClip
 import pysrt
 import pysubs2
 from spleeter.separator import Separator
+import importlib.resources
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
-from io import FileIO
+import online  # Import the online mode handler
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
-# Force Whisper to find assets in bundled mode if frozen
+# Force Whisper to find assets in bundled mode
 if getattr(sys, 'frozen', False):
     whisper_assets_path = os.path.join(sys._MEIPASS, 'whisper', 'assets')
     if os.path.exists(whisper_assets_path):
@@ -94,7 +87,7 @@ def load_settings():
         return defaults
 
 # ──────────────────────────────────────────────
-# SETTINGS DIALOG
+# SETTINGS DIALOG (unchanged)
 # ──────────────────────────────────────────────
 class SettingsDialog(QDialog):
     settingsChanged = pyqtSignal(dict)
@@ -264,9 +257,9 @@ class NotyCaptionWindow(QMainWindow):
         self.right_layout.addWidget(self.login_button, r, 0, 1, 2)
         r += 1
 
-        # Mode combo (appears after login)
+        # Mode combo
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["Normal (Local)", "Online (Colab + Drive)"])
+        self.mode_combo.addItems(["Normal", "Online"])
         self.mode_combo.setMinimumHeight(54)
         self.mode_combo.currentTextChanged.connect(self.set_mode)
         self.mode_combo.setVisible(False)
@@ -403,13 +396,6 @@ class NotyCaptionWindow(QMainWindow):
         self.service = None
         self.mode = "normal"
         self.poll_timer = QTimer(self)
-        self.colab_browser_opened = False
-        self.last_focus_time = time.time()
-
-        # Tab tracking simulation timers
-        self.tab_watch_timer = QTimer(self)
-        self.tab_watch_timer.timeout.connect(self.check_browser_tab_focus)
-        self.tab_watch_timer.setInterval(3500)  # check every ~3.5 seconds
 
         # Load token if exists
         if os.path.exists("token.json"):
@@ -419,39 +405,6 @@ class NotyCaptionWindow(QMainWindow):
             self.service = build("drive", "v3", credentials=creds)
             self.login_button.setVisible(False)
             self.mode_combo.setVisible(True)
-
-        # Install event filter to detect window focus changes
-        QApplication.instance().installEventFilter(self)
-
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.WindowActivate:
-            self.last_focus_time = time.time()
-            # If we were waiting for colab tab and app just got focus → maybe user switched back
-            if self.colab_browser_opened and self.poll_timer.isActive():
-                self.poll_timer.setInterval(3000)  # speed up polling a bit
-        elif event.type() == QEvent.WindowDeactivate:
-            # App lost focus — possibly user went to browser
-            if self.colab_browser_opened:
-                self.poll_timer.setInterval(8000)  # slow down when not focused
-        return super().eventFilter(obj, event)
-
-    def check_browser_tab_focus(self):
-        """Very rough simulation — checks if app has been unfocused for long time"""
-        now = time.time()
-        if self.colab_browser_opened and (now - self.last_focus_time > 45):
-            reply = QMessageBox.question(
-                self, "Colab Tab Check",
-                "It looks like you might have switched away from the Colab tab for a while.\n"
-                "Have you run all cells in the Colab notebook yet?\n\n"
-                "Yes = continue polling for result\n"
-                "No  = open Colab again / remind user",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
-            )
-            if reply == QMessageBox.No:
-                if self.poll_notebook_id:
-                    webbrowser.open(f'https://colab.research.google.com/drive/{self.poll_notebook_id}')
-            else:
-                self.last_focus_time = now  # reset timer
 
     def center(self):
         qr = self.frameGeometry()
@@ -507,8 +460,6 @@ class NotyCaptionWindow(QMainWindow):
         self.apply_theme()
 
     def closeEvent(self, event: QCloseEvent):
-        self.tab_watch_timer.stop()
-        self.poll_timer.stop()
         if self.audio_file and self.audio_file.endswith(".temp.wav") and os.path.exists(self.audio_file):
             try:
                 os.remove(self.audio_file)
@@ -530,15 +481,12 @@ class NotyCaptionWindow(QMainWindow):
             self.service = build("drive", "v3", credentials=creds)
             self.login_button.setVisible(False)
             self.mode_combo.setVisible(True)
-            QMessageBox.information(self, "Login Success", "Google Drive connected.\nYou can now use Online mode.")
+
         else:
-            QMessageBox.warning(self, "Missing File", "client.json not found in application folder.")
+            QMessageBox.warning(self, "Error", "client.json not found.")
 
     def set_mode(self, text):
-        if "Online" in text:
-            self.mode = "online"
-        else:
-            self.mode = "normal"
+        self.mode = "online" if "Online" in text else "normal"
 
     def load_whisper_model(self):
         model_name = "large-v3"
@@ -620,7 +568,7 @@ class NotyCaptionWindow(QMainWindow):
             if sub["start"].total_seconds() <= sec < sub["end"].total_seconds():
                 cursor = QTextCursor(doc)
                 cursor.movePosition(QTextCursor.Start)
-                cursor.movePosition(QTextCursor.NextBlock, QTextCursor.MoveAnchor, i)
+                cursor.movePosition(QTextCursor.NextBlock, n=i)
                 cursor.movePosition(QTextCursor.StartOfBlock)
                 cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
                 fmt = cursor.charFormat()
@@ -704,157 +652,36 @@ class NotyCaptionWindow(QMainWindow):
         spleeter_models_dir = os.path.join(os.path.dirname(__file__), "pretrained_models", "2stems")
         if not os.path.exists(spleeter_models_dir):
             QMessageBox.warning(self, "Spleeter Models Missing",
-                                "Spleeter pretrained models not found.\nCannot enhance audio.")
+                                "Spleeter pretrained models not found.\nCannot enhance audio. Install them manually.")
             return
 
         try:
-            self.prog_main.setValue(10)
             separator = Separator('spleeter:2stems')
-            separator.separate_to_file(self.audio_file, output_dir, synchronous=True)
-            self.prog_main.setValue(60)
+            separator.separate_to_file(self.audio_file, temp_dir)
+            vocals_path = os.path.join(temp_dir, os.path.basename(self.audio_file).replace('.wav', ''), 'vocals.wav')
 
-            base_name = os.path.splitext(os.path.basename(self.audio_file))[0]
-            vocals_path = os.path.join(output_dir, base_name, 'vocals.wav')
-
-            if not os.path.exists(vocals_path):
-                raise FileNotFoundError("vocals.wav not found")
-
-            base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
-            final_name = f"{base}_vocals_only.wav"
-            final_path = os.path.join(self.output_folder, final_name)
-
-            shutil.move(vocals_path, final_path)
-            self.prog_main.setValue(100)
-
-            QMessageBox.information(self, "Success",
-                                    f"Vocals-only file created:\n{final_path}")
-
-        except Exception as e:
-            self.prog_main.setValue(0)
-            QMessageBox.warning(self, "Enhance Failed", str(e))
-
-        finally:
-            try:
-                spleeter_out_folder = os.path.join(output_dir, base_name)
-                if os.path.exists(spleeter_out_folder):
-                    shutil.rmtree(spleeter_out_folder, ignore_errors=True)
-            except:
-                pass
-
-    def get_or_create_folder(self, name):
-        query = f"name='{name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        results = self.service.files().list(q=query, fields="files(id, name)").execute()
-        files = results.get('files', [])
-        for f in files:
-            if f['name'] == name:
-                return f['id']
-        metadata = {'name': name, 'mimeType': 'application/vnd.google-apps.folder'}
-        file = self.service.files().create(body=metadata, fields='id').execute()
-        return file.get('id')
-
-    def upload_file_to_drive(self, filepath, filename, parent_id=None):
-        metadata = {'name': filename}
-        if parent_id:
-            metadata['parents'] = [parent_id]
-        media = MediaFileUpload(filepath, resumable=True)
-        uploaded = self.service.files().create(body=metadata, media_body=media, fields='id').execute()
-        return uploaded.get('id')
-
-    def generate_notebook_content(self, audio_filename, lang_code, task, wpl, fmt, output_filename):
-        notebook = {
-            "nbformat": 4,
-            "nbformat_minor": 0,
-            "metadata": {"colab": {"provenance": []}, "kernelspec": {"name": "python3"}},
-            "cells": [
-                {"cell_type": "code", "source": ["!pip install -q openai-whisper pysrt pysubs2"]},
-                {"cell_type": "code", "source": ["from google.colab import drive\ndrive.mount('/content/drive')"]},
-                {"cell_type": "code", "source": ["import whisper\nimport pysrt\nimport pysubs2\nfrom datetime import timedelta"]},
-                {"cell_type": "code", "source": ["model = whisper.load_model('large-v3')"]},
-                {"cell_type": "code", "source": [
-                    f"audio_path = '/content/drive/My Drive/uploads/{audio_filename}'\n",
-                    f"result = model.transcribe(audio_path, language='{lang_code}', task='{task}', verbose=True, word_timestamps=True)"
-                ]},
-                {"cell_type": "code", "source": [
-                    "subtitles = []\nidx = 1\n",
-                    "for seg in result.get('segments', []):\n",
-                    "    txt = seg.get('text', '').strip()\n    if not txt: continue\n",
-                    "    s = seg.get('start', 0)\n    e = seg.get('end', s + 1)\n",
-                    "    words = seg.get('words', [])\n    if words:\n",
-                    "        w_txt = [w['word'].strip() for w in words]\n",
-                    "        w_s = [w.get('start', s) for w in words]\n        w_e = [w.get('end', e) for w in words]\n",
-                    "    else:\n        w_txt = txt.split()\n        dur = e - s\n",
-                    "        w_s = [s + i*dur/max(1,len(w_txt)) for i in range(len(w_txt))]\n        w_e = w_s[1:] + [e]\n",
-                    f"    for i in range(0, len(w_txt), {wpl}):\n",
-                    "        chunk = w_txt[i:i+{wpl}]\n        line = ' '.join(chunk).strip()\n        if not line: continue\n",
-                    "        st = w_s[i]\n        en = w_e[min(i + {wpl}-1, len(w_e)-1)]\n",
-                    "        subtitles.append({'index':idx, 'start':timedelta(seconds=st), 'end':timedelta(seconds=en), 'text':line})\n        idx += 1"
-                ]},
-                {"cell_type": "code", "source": [
-                    f"output_path = '/content/drive/My Drive/{output_filename}'\n",
-                    f"fmt = '{fmt}'\n",
-                    "if fmt == '.srt':\n    srt = pysrt.SubRipFile()\n",
-                    "    for s in subtitles:\n        item = pysrt.SubRipItem(index=s['index'], start=pysrt.SubRipTime.from_ordinal(s['start'].total_seconds()*1000), end=pysrt.SubRipTime.from_ordinal(s['end'].total_seconds()*1000), text=s['text'])\n        srt.append(item)\n    srt.save(output_path, encoding='utf-8')\n",
-                    "else:\n    ass = pysubs2.SSAFile()\n    for s in subtitles:\n        ev = pysubs2.SSAEvent(start=int(s['start'].total_seconds()*1000), end=int(s['end'].total_seconds()*1000), text=s['text'])\n        ass.events.append(ev)\n    ass.save(output_path)\n",
-                    "print('Done! File saved to Google Drive.')"
-                ]}
-            ]
-        }
-        return notebook
-
-    def poll_for_output(self):
-        if not self.poll_output_name:
-            return
-
-        query = f"name = '{self.poll_output_name}' and trashed = false"
-        res = self.service.files().list(q=query, fields="files(id, name)").execute()
-        files = res.get('files', [])
-
-        if files:
-            file_id = files[0]['id']
-            request = self.service.files().get_media(fileId=file_id)
-            fh = FileIO(self.poll_local_out, 'wb')
-            downloader = MediaIoBaseDownload(fh, request)
-            done = False
-            while not done:
-                status, done = downloader.next_chunk()
-
-            # Cleanup Drive files
-            try:
-                self.service.files().delete(fileId=self.poll_audio_id).execute()
-                self.service.files().delete(fileId=self.poll_notebook_id).execute()
-                self.service.files().delete(fileId=file_id).execute()
-            except:
-                pass
-
-            self.poll_timer.stop()
-            self.tab_watch_timer.stop()
-            self.colab_browser_opened = False
-
-            # Load result into app
-            ext = os.path.splitext(self.poll_output_name)[1]
-            if ext == '.srt':
-                subs = pysrt.open(self.poll_local_out)
-                self.subtitles = [{
-                    'index': item.index,
-                    'start': timedelta(seconds=item.start.ordinal/1000.0),
-                    'end': timedelta(seconds=item.end.ordinal/1000.0),
-                    'text': item.text
-                } for item in subs]
-                self.display_lines = [item.text for item in subs]
+            if os.path.exists(vocals_path):
+                base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
+                out_path = os.path.join(self.output_folder, f"{base}_enhanced_vocals.wav")
+                shutil.move(vocals_path, out_path)
+                QMessageBox.information(self, "Success", f"Enhanced vocals saved to {out_path}")
             else:
-                ass = pysubs2.load(self.poll_local_out)
-                self.subtitles = [{
-                    'index': i+1,
-                    'start': timedelta(milliseconds=ev.start),
-                    'end': timedelta(milliseconds=ev.end),
-                    'text': ev.text
-                } for i, ev in enumerate(ass.events)]
-                self.display_lines = [ev.text for ev in ass.events]
+                raise FileNotFoundError("vocals.wav not found")
+        except Exception as e:
+            QMessageBox.warning(self, "Enhance Failed",
+                                f"Audio enhancement failed:\n{str(e)}\n"
+                                "Using original audio for captioning.")
 
-            self.caption_edit.setText("\n".join(self.display_lines).strip())
-            self.generated = True
-            self.edit_btn.setEnabled(True)
-            QMessageBox.information(self, "Success", f"Remote captions ready!\nSaved to:\n{self.poll_local_out}")
+        # Cleanup
+        try:
+            acc_path = os.path.join(temp_dir, os.path.basename(self.audio_file).replace('.wav', ''), 'accompaniment.wav')
+            if os.path.exists(acc_path):
+                os.remove(acc_path)
+            spleeter_out = os.path.join(temp_dir, os.path.basename(self.audio_file).replace('.wav', ''))
+            if os.path.exists(spleeter_out):
+                shutil.rmtree(spleeter_out, ignore_errors=True)
+        except:
+            pass
 
     def generate(self):
         if not self.audio_file or not os.path.exists(self.audio_file):
@@ -862,176 +689,129 @@ class NotyCaptionWindow(QMainWindow):
             return
 
         temp_dir = self.settings.get("temp_dir", QDir.tempPath())
-        enhanced_audio = os.path.join(temp_dir, "enhanced_vocals_temp.wav")
+        enhanced_audio = os.path.join(temp_dir, "enhanced_vocals.wav")
         use_enhanced = False
 
-        # Optional vocal enhancement
         spleeter_models_dir = os.path.join(os.path.dirname(__file__), "pretrained_models", "2stems")
         if os.path.exists(spleeter_models_dir):
             try:
                 separator = Separator('spleeter:2stems')
                 separator.separate_to_file(self.audio_file, temp_dir)
-                base_name = os.path.splitext(os.path.basename(self.audio_file))[0]
-                vocals_path = os.path.join(temp_dir, base_name, 'vocals.wav')
+                vocals_path = os.path.join(temp_dir, os.path.basename(self.audio_file).replace('.wav', ''), 'vocals.wav')
                 if os.path.exists(vocals_path):
                     shutil.move(vocals_path, enhanced_audio)
                     use_enhanced = True
-            except:
-                pass
-
-        audio_to_use = enhanced_audio if use_enhanced else self.audio_file
+                else:
+                    enhanced_audio = self.audio_file
+            except Exception as e:
+                enhanced_audio = self.audio_file
+                QMessageBox.information(self, "Spleeter Info",
+                                        "Could not separate vocals (missing config or error).\n"
+                                        "Using original audio for transcription.")
+        else:
+            enhanced_audio = self.audio_file
+            QMessageBox.information(self, "Spleeter Info",
+                                    "Spleeter pretrained models not found.\n"
+                                    "Using original audio for transcription.")
 
         lang = self.lang_combo.currentText()
         lang_code = "ja" if lang == "japlish" else "en"
         task = "translate" if lang == "japlish" else "transcribe"
-        wpl = self.words_spin.value()
-        fmt = self.format_combo.currentText()
 
+        wpl = self.words_spin.value()
+
+        self.prog_main.setValue(0)
+        self.prog_frame.setValue(0)
+        self.prog_frame.setMaximum(100)
+
+        fmt = self.format_combo.currentText()
         base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
         out_path = os.path.join(self.output_folder, f"{base}_captions{fmt}")
 
-        self.prog_main.setValue(0)
-
         if self.mode == "online":
-            if not self.service:
-                QMessageBox.warning(self, "Login Required", "Please login with Google first for Online mode.")
-                return
-
+            online.handle_online(self, enhanced_audio if use_enhanced else self.audio_file, lang_code, task, wpl, fmt, base, out_path)
+        else:
+            # Local mode
             try:
-                uploads_folder_id = self.get_or_create_folder("uploads")
-                audio_filename = os.path.basename(audio_to_use)
-                audio_id = self.upload_file_to_drive(audio_to_use, audio_filename, uploads_folder_id)
+                model = self.load_whisper_model()
+                self.prog_main.setValue(15)
 
-                notebook_data = self.generate_notebook_content(
-                    audio_filename, lang_code, task, wpl, fmt,
-                    f"{base}_captions{fmt}"
-                )
+                result = model.transcribe(enhanced_audio if use_enhanced else self.audio_file, language=lang_code, task=task, verbose=True, word_timestamps=True)
+                self.prog_main.setValue(70)
+                self.prog_frame.setValue(100)
+                self.prog_frame.setFormat("Frames done")
 
-                temp_nb_path = os.path.join(temp_dir, "NotyCaption_Generator.ipynb")
-                with open(temp_nb_path, "w", encoding="utf-8") as f:
-                    json.dump(notebook_data, f, ensure_ascii=False, indent=2)
+                self.subtitles = []
+                self.display_lines = []
+                idx = 1
+                for seg in result["segments"]:
+                    text = seg["text"].strip()
+                    words = text.split()
+                    start = seg["start"]
+                    end = seg["end"]
+                    duration = end - start
 
-                notebook_id = self.upload_file_to_drive(temp_nb_path, "NotyCaption_Generator.ipynb")
-                os.remove(temp_nb_path)
+                    for i in range(0, len(words), wpl):
+                        line_words = words[i:i + wpl]
+                        line_text = " ".join(line_words)
+                        line_start = start + (i / len(words)) * duration
+                        line_end = start + ((i + len(line_words)) / len(words)) * duration
 
-                colab_url = f"https://colab.research.google.com/drive/{notebook_id}"
-                webbrowser.open(colab_url)
-                self.colab_browser_opened = True
+                        self.subtitles.append({
+                            "index": idx,
+                            "start": timedelta(seconds=line_start),
+                            "end": timedelta(seconds=line_end),
+                            "text": line_text
+                        })
+                        self.display_lines.append(line_text)
+                        idx += 1
 
-                QMessageBox.information(self, "Colab Opened",
-                    "Colab notebook opened in browser.\n"
-                    "Please click Runtime → Run all (or Ctrl+F9)\n"
-                    "App will check for result every few seconds.\n"
-                    "Keep the Colab tab open until finished.")
+                self.prog_main.setValue(92)
 
-                self.poll_audio_id = audio_id
-                self.poll_notebook_id = notebook_id
-                self.poll_output_name = f"{base}_captions{fmt}"
-                self.poll_local_out = out_path
+                preview_text = "\n".join(self.display_lines)
+                self.caption_edit.setText(preview_text)
 
-                self.poll_timer.timeout.connect(self.poll_for_output)
-                self.poll_timer.start(6000)           # start polling
+                if fmt == ".srt":
+                    srt_subs = pysrt.SubRipFile()
+                    for sub in self.subtitles:
+                        item = pysrt.SubRipItem(
+                            index=sub["index"],
+                            start=sub["start"],
+                            end=sub["end"],
+                            text=sub["text"]
+                        )
+                        srt_subs.append(item)
+                    srt_subs.save(out_path, encoding="utf-8")
+                elif fmt == ".ass":
+                    ass_subs = pysubs2.SSAFile()
+                    for sub in self.subtitles:
+                        event = pysubs2.SSAEvent(
+                            start=pysubs2.make_time(s=sub["start"].total_seconds()),
+                            end=pysubs2.make_time(s=sub["end"].total_seconds()),
+                            text=sub["text"]
+                        )
+                        ass_subs.events.append(event)
+                    ass_subs.save(out_path)
 
-                self.tab_watch_timer.start()          # start "tab focus" simulation checks
+                self.prog_main.setValue(100)
+                QMessageBox.information(self, "Success", f"Captions generated and saved to {out_path}.")
+
+                self.generated = True
+                self.edit_btn.setEnabled(True)
 
             except Exception as e:
-                QMessageBox.critical(self, "Online Mode Error", str(e))
-            finally:
-                if use_enhanced and os.path.exists(enhanced_audio):
-                    os.remove(enhanced_audio)
+                self.prog_frame.setFormat("Error")
+                QMessageBox.critical(self, "Generation Failed", f"Failed to generate captions:\n{str(e)}")
 
-            return
-
-        # ── LOCAL MODE ───────────────────────────────────────
+        # Cleanup
         try:
-            model = self.load_whisper_model()
-            self.prog_main.setValue(15)
-
-            result = model.transcribe(audio_to_use, language=lang_code, task=task, verbose=True, word_timestamps=True)
-            self.prog_main.setValue(70)
-
-            self.subtitles = []
-            self.display_lines = []
-            idx = 1
-
-            for seg in result.get("segments", []):
-                txt = seg.get("text", "").strip()
-                if not txt: continue
-                s = seg.get("start", 0)
-                e = seg.get("end", s + 1)
-                words = seg.get("words", [])
-                if words:
-                    w_txt = [w["word"].strip() for w in words]
-                    w_s = [w.get("start", s) for w in words]
-                    w_e = [w.get("end", e) for w in words]
-                else:
-                    w_txt = txt.split()
-                    dur = e - s
-                    w_s = [s + i * dur / max(1, len(w_txt)) for i in range(len(w_txt))]
-                    w_e = w_s[1:] + [e]
-
-                for i in range(0, len(w_txt), wpl):
-                    chunk = w_txt[i:i + wpl]
-                    line = " ".join(chunk).strip()
-                    if not line: continue
-                    st = w_s[i]
-                    en = w_e[min(i + wpl - 1, len(w_e) - 1)]
-
-                    self.subtitles.append({
-                        "index": idx,
-                        "start": timedelta(seconds=st),
-                        "end": timedelta(seconds=en),
-                        "text": line
-                    })
-                    self.display_lines.append(line)
-                    idx += 1
-
-            self.prog_main.setValue(92)
-
-            preview = "\n".join(self.display_lines)
-            self.caption_edit.setText(preview.strip())
-
-            if fmt == ".srt":
-                srt = pysrt.SubRipFile()
-                for sub in self.subtitles:
-                    item = pysrt.SubRipItem(
-                        index=sub["index"],
-                        start=pysrt.SubRipTime.from_ordinal(sub["start"].total_seconds()*1000),
-                        end=pysrt.SubRipTime.from_ordinal(sub["end"].total_seconds()*1000),
-                        text=sub["text"]
-                    )
-                    srt.append(item)
-                srt.save(out_path, encoding='utf-8')
-            else:
-                ass = pysubs2.SSAFile()
-                for sub in self.subtitles:
-                    ev = pysubs2.SSAEvent(
-                        start=int(sub["start"].total_seconds()*1000),
-                        end=int(sub["end"].total_seconds()*1000),
-                        text=sub["text"]
-                    )
-                    ass.events.append(ev)
-                ass.save(out_path)
-
-            self.prog_main.setValue(100)
-            QMessageBox.information(self, "Success", f"Captions saved:\n{out_path}")
-
-            self.generated = True
-            self.edit_btn.setEnabled(True)
-
-        except Exception as e:
-            QMessageBox.critical(self, "Generation Failed", str(e))
-
-        finally:
             if use_enhanced and os.path.exists(enhanced_audio):
                 os.remove(enhanced_audio)
-            try:
-                base_name = os.path.splitext(os.path.basename(self.audio_file))[0]
-                spleeter_out = os.path.join(temp_dir, base_name)
-                if os.path.exists(spleeter_out):
-                    shutil.rmtree(spleeter_out, ignore_errors=True)
-            except:
-                pass
+            spleeter_out = os.path.join(temp_dir, os.path.basename(self.audio_file).replace('.wav', ''))
+            if os.path.exists(spleeter_out):
+                shutil.rmtree(spleeter_out, ignore_errors=True)
+        except:
+            pass
 
     def toggle_edit(self):
         if not self.generated:
@@ -1046,18 +826,15 @@ class NotyCaptionWindow(QMainWindow):
         text = self.caption_edit.toPlainText().strip()
         lines = [l.strip() for l in text.split('\n') if l.strip()]
         if len(lines) != len(self.subtitles):
-            QMessageBox.warning(self, "Edit Error", "Number of lines changed. Edits not applied.")
+            QMessageBox.warning(self, "Error", "Invalid number of lines. Edits not saved.")
             return
         for i, new_text in enumerate(lines):
             self.subtitles[i]["text"] = new_text
-        QMessageBox.information(self, "Edits Saved", "Changes applied.")
+        QMessageBox.information(self, "Success", "Edits saved.")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'App.ico')
-    if os.path.exists(icon_path):
-        app.setWindowIcon(QIcon(icon_path))
-    app.setStyle('Fusion')
-    win = NotyCaptionWindow()
-    win.show()
+    app.setWindowIcon(QIcon('App.ico'))
+    window = NotyCaptionWindow()
+    window.show()
     sys.exit(app.exec_())
