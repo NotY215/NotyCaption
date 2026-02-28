@@ -33,6 +33,17 @@ import webbrowser
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+
 # ──────────────────────────────────────────────
 # SETTINGS & ENCRYPTION
 # ──────────────────────────────────────────────
@@ -178,7 +189,8 @@ class NotyCaptionWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("NotyCaption by NotY215")
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'App.ico')
+
+        icon_path = resource_path('App.ico')
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
@@ -392,6 +404,7 @@ class NotyCaptionWindow(QMainWindow):
         self.poll_notebook_id = None
         self.poll_output_name = None
         self.poll_local_out = None
+        self.is_generating = False  # New flag to prevent multiple generates
 
         if os.path.exists("token.json"):
             creds = Credentials.from_authorized_user_file("token.json", SCOPES)
@@ -478,8 +491,10 @@ class NotyCaptionWindow(QMainWindow):
         super().closeEvent(event)
 
     def google_login(self):
-        if os.path.exists("client.json"):
-            flow = InstalledAppFlow.from_client_secrets_file("client.json", SCOPES)
+        client_path = resource_path("client.json")
+
+        if os.path.exists(client_path):
+            flow = InstalledAppFlow.from_client_secrets_file(client_path, SCOPES)
             creds = flow.run_local_server(port=0)
             with open("token.json", "w") as token:
                 token.write(creds.to_json())
@@ -488,14 +503,13 @@ class NotyCaptionWindow(QMainWindow):
             self.mode_combo.setVisible(True)
             QMessageBox.information(self, "Success", "Google Drive connected.")
         else:
-            QMessageBox.warning(self, "Missing client.json", "client.json not found in application folder.")
+            QMessageBox.warning(self, "Missing client.json",
+                                f"client.json not found.\n\nExpected location: {client_path}")
 
     def set_mode(self, text):
         self.mode = "online" if "Online" in text else "normal"
 
     def load_whisper_model(self):
-        # Uses Whisper's default cache (~/.cache/whisper)
-        # First run will download large-v3 automatically
         return whisper.load_model("large-v3")
 
     def media_status(self, status):
@@ -667,8 +681,14 @@ class NotyCaptionWindow(QMainWindow):
                 pass
 
     def generate(self):
+        if self.is_generating:
+            QMessageBox.warning(self, "Busy", "Generation is already in progress. Please wait.")
+            return
+        self.is_generating = True
+
         if not self.audio_file or not os.path.exists(self.audio_file):
             QMessageBox.warning(self, "Error", "No audio loaded.")
+            self.is_generating = False
             return
 
         temp_dir = self.settings.get("temp_dir", QDir.tempPath())
@@ -698,6 +718,7 @@ class NotyCaptionWindow(QMainWindow):
         if os.path.exists(out_path):
             reply = QMessageBox.question(self, "Overwrite?", f"{out_path} already exists.\nOverwrite?", QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.No:
+                self.is_generating = False
                 return
 
         self.prog_main.setValue(0)
@@ -705,11 +726,22 @@ class NotyCaptionWindow(QMainWindow):
 
         if self.mode == "online":
             try:
+                self.poll_timer.stop()
+                try:
+                    self.poll_timer.timeout.disconnect()
+                except TypeError:
+                    pass
+
                 from online import handle_online
-                handle_online(self, enhanced_audio if use_enhanced else self.audio_file,
-                              lang_code, task, wpl, fmt, base, out_path)
+                success = handle_online(self, enhanced_audio if use_enhanced else self.audio_file,
+                                        lang_code, task, wpl, fmt, base, out_path)
+                if not success:
+                    self.is_generating = False
+                    return
             except Exception as e:
                 QMessageBox.critical(self, "Online Mode Failed", str(e))
+                self.is_generating = False
+                return
         else:
             try:
                 self.prog_main.setValue(10)
@@ -798,6 +830,9 @@ class NotyCaptionWindow(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, "Generation Failed", f"Error:\n{str(e)}")
 
+            finally:
+                self.is_generating = False
+
         # Cleanup
         try:
             if use_enhanced and os.path.exists(enhanced_audio):
@@ -830,9 +865,11 @@ class NotyCaptionWindow(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'App.ico')
+
+    icon_path = resource_path('App.ico')
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
+
     app.setStyle('Fusion')
     win = NotyCaptionWindow()
     win.show()

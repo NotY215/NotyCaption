@@ -3,12 +3,23 @@
 
 import os
 import json
+import sys
 from datetime import timedelta
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QMessageBox
 import webbrowser
 import pysrt
+
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
 
 
 # ==============================
@@ -33,18 +44,24 @@ def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path)
             for f in files:
                 self.service.files().delete(fileId=f["id"]).execute()
 
-        # Delete existing notebook if any (to avoid duplicates)
+        # Delete old notebooks to avoid clutter
         query = "name='NotyCaption_Generator.ipynb' and trashed=false"
         results = self.service.files().list(q=query, fields="files(id)").execute()
         for f in results.get("files", []):
             self.service.files().delete(fileId=f["id"]).execute()
 
-        # Upload audio to Drive/uploads
+        # Upload audio
         uploads_id = get_or_create_folder(self.service, "uploads")
         audio_filename = os.path.basename(audio_to_use)
         audio_id = upload_file(self.service, audio_to_use, audio_filename, uploads_id)
 
-        # Generate notebook
+        # Verify upload
+        query = f"name='{audio_filename}' and '{uploads_id}' in parents and trashed=false"
+        results = self.service.files().list(q=query).execute()
+        if not results.get("files", []):
+            raise Exception("Audio upload failed - file not found in Drive after upload. Try again.")
+
+        # Generate notebook with file check
         notebook_content = generate_notebook_content(
             audio_filename,
             wpl,
@@ -58,8 +75,7 @@ def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path)
         with open(temp_ipynb, "w", encoding="utf-8") as f:
             json.dump(notebook_content, f, indent=2)
 
-        # FIXED: added filename parameter
-        notebook_id = upload_file(self.service, temp_ipynb, temp_ipynb)  # ← here was the bug
+        notebook_id = upload_file(self.service, temp_ipynb, temp_ipynb)
         os.remove(temp_ipynb)
 
         colab_url = f"https://colab.research.google.com/drive/{notebook_id}"
@@ -70,14 +86,16 @@ def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path)
             "Colab Opened",
             "Notebook opened in browser.\n\n"
             "Wait 60 seconds → then Runtime → Run All.\n"
-            "After completion, app auto-downloads result."
+            "After completion, app auto-downloads result.\n\n"
+            "If error in Colab, check if Drive is mounted and file is visible."
         )
 
-        # Polling
-        self.poll_audio_id = audio_id
-        self.poll_notebook_id = notebook_id
-        self.poll_local_out = out_path
-
+        # Polling setup with disconnect
+        self.poll_timer.stop()
+        try:
+            self.poll_timer.timeout.disconnect()
+        except TypeError:
+            pass
         self.poll_timer.timeout.connect(lambda: poll_for_output(self))
         self.poll_timer.start(8000)
 
@@ -136,7 +154,6 @@ def generate_notebook_content(audio_filename, words_per_line, fmt, output_name, 
         },
         "cells": [
 
-            # Install dependencies
             code_cell([
                 "%%capture\n",
                 "!apt update -qq\n",
@@ -146,13 +163,11 @@ def generate_notebook_content(audio_filename, words_per_line, fmt, output_name, 
                 "print('Dependencies installed')"
             ]),
 
-            # Mount Drive
             code_cell([
                 "from google.colab import drive\n",
                 "drive.mount('/content/drive', force_remount=True)\n"
             ]),
 
-            # Imports
             code_cell([
                 "import whisper\n",
                 "import pysrt\n",
@@ -161,7 +176,6 @@ def generate_notebook_content(audio_filename, words_per_line, fmt, output_name, 
                 "import os\n"
             ]),
 
-            # Load model (you can change to 'large-v3' if you want better quality)
             code_cell([
                 "model_name = 'medium'\n",
                 "print('Loading model...')\n",
@@ -169,10 +183,17 @@ def generate_notebook_content(audio_filename, words_per_line, fmt, output_name, 
                 "print('Model ready')\n"
             ]),
 
-            # Transcribe
             code_cell([
                 f"audio_path = '/content/drive/My Drive/uploads/{audio_filename}'\n",
-                "result = model.transcribe(\n",
+                "import os\n",
+                "if not os.path.exists(audio_path):\n",
+                "    raise FileNotFoundError(f'Audio file not found at {audio_path}. Ensure Drive is mounted and file is uploaded.')\n",
+                "else:\n",
+                "    print('Audio file found successfully')\n"
+            ]),
+
+            code_cell([
+                f"result = model.transcribe(\n",
                 "    audio_path,\n",
                 f"    language='{lang_code}',\n",
                 f"    task='{task}',\n",
@@ -180,7 +201,6 @@ def generate_notebook_content(audio_filename, words_per_line, fmt, output_name, 
                 ")\n"
             ]),
 
-            # Generate subtitles
             code_cell([
                 "subtitles = []\n",
                 "idx = 1\n",
@@ -196,7 +216,6 @@ def generate_notebook_content(audio_filename, words_per_line, fmt, output_name, 
                 "        idx += 1\n"
             ]),
 
-            # Save output
             code_cell([
                 f"fmt = '{fmt}'\n",
                 f"output_path = '/content/drive/My Drive/{output_name}'\n",
@@ -235,7 +254,12 @@ def generate_notebook_content(audio_filename, words_per_line, fmt, output_name, 
 def poll_for_output(self):
 
     query = f"name='{self.poll_output_name}' and trashed=false"
-    results = self.service.files().list(q=query, fields="files(id,name)").execute()
+    try:
+        results = self.service.files().list(q=query, fields="files(id,name)").execute()
+    except Exception as e:
+        print(f"Polling error: {str(e)}")  # Log but don't show dialog
+        return
+
     files = results.get("files", [])
 
     if not files:
@@ -243,26 +267,24 @@ def poll_for_output(self):
 
     file_id = files[0]["id"]
 
-    with open(self.poll_local_out, "wb") as f:
-        request = self.service.files().get_media(fileId=file_id)
-        downloader = MediaIoBaseDownload(f, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
+    try:
+        with open(self.poll_local_out, "wb") as f:
+            request = self.service.files().get_media(fileId=file_id)
+            downloader = MediaIoBaseDownload(f, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+    except Exception as e:
+        print(f"Download error: {str(e)}")
+        return
 
     # Cleanup
-    try:
-        self.service.files().delete(fileId=self.poll_audio_id).execute()
-    except:
-        pass
-    try:
-        self.service.files().delete(fileId=self.poll_notebook_id).execute()
-    except:
-        pass
-    try:
-        self.service.files().delete(fileId=file_id).execute()
-    except:
-        pass
+    try: self.service.files().delete(fileId=self.poll_audio_id).execute()
+    except: pass
+    try: self.service.files().delete(fileId=self.poll_notebook_id).execute()
+    except: pass
+    try: self.service.files().delete(fileId=file_id).execute()
+    except: pass
 
     self.poll_timer.stop()
 
@@ -272,9 +294,7 @@ def poll_for_output(self):
         f"Subtitles downloaded:\n{self.poll_local_out}"
     )
 
-# ==============================
-# CLEANUP HELPERS (used on app close)
-# ==============================
+
 def empty_uploads(service):
     uploads_id = get_or_create_folder(service, "uploads")
     query = f"'{uploads_id}' in parents and trashed=false"
