@@ -36,9 +36,6 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 import webbrowser
-import win32event
-import winerror
-import win32api
 
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
@@ -53,18 +50,20 @@ def resource_path(relative_path):
 
 
 # ──────────────────────────────────────────────
-# LOGGING SETUP
+# LOGGING SETUP – Fixed to always write next to EXE
 # ──────────────────────────────────────────────
 def setup_logging():
+    # Always log next to the executable (works in both dev and frozen EXE)
     if getattr(sys, 'frozen', False):
-        log_dir = os.path.dirname(sys.executable)
+        base_dir = os.path.dirname(sys.executable)
     else:
-        log_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = os.path.dirname(os.path.abspath(__file__))
 
-    os.makedirs(os.path.join(log_dir, "logs"), exist_ok=True)
+    log_dir = os.path.join(base_dir, "logs")
+    os.makedirs(log_dir, exist_ok=True)
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3]
-    log_file = os.path.join(log_dir, "logs", f"NotyCaption_{timestamp}.log")
+    log_file = os.path.join(log_dir, f"NotyCaption_{timestamp}.log")
 
     logging.basicConfig(
         level=logging.INFO,
@@ -72,13 +71,15 @@ def setup_logging():
         handlers=[
             logging.FileHandler(log_file, encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
-        ]
+        ],
+        force=True  # Ensure config is applied even if logging was initialized before
     )
     logging.info("=== NotyCaption started ===")
     logging.info(f"Python version: {sys.version}")
     logging.info(f"Working directory: {os.getcwd()}")
     logging.info(f"Log file: {log_file}")
     logging.info(f"PyInstaller frozen: {getattr(sys, 'frozen', False)}")
+    logging.info(f"Executable path: {sys.executable if getattr(sys, 'frozen', False) else 'dev mode'}")
     return logging.getLogger("NotyCaption")
 
 
@@ -100,7 +101,10 @@ class SingleInstance:
 
     def __del__(self):
         if not self.already_exists:
-            self.sock.close()
+            try:
+                self.sock.close()
+            except:
+                pass
 
 
 # ──────────────────────────────────────────────
@@ -472,6 +476,7 @@ class NotyCaptionWindow(QMainWindow):
         self.poll_output_name = None
         self.poll_local_out = None
         self.is_generating = False
+        self.spleeter_instance = None  # Lazy load Spleeter once
 
         if os.path.exists("token.json"):
             try:
@@ -627,6 +632,17 @@ class NotyCaptionWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to load Whisper model: {traceback.format_exc()}")
             raise
+
+    def get_spleeter(self):
+        if self.spleeter_instance is None:
+            try:
+                logger.info("Initializing Spleeter separator (lazy load)...")
+                self.spleeter_instance = Separator('spleeter:2stems')
+                logger.info("Spleeter initialized successfully")
+            except Exception as e:
+                logger.error(f"Spleeter initialization failed: {traceback.format_exc()}")
+                raise
+        return self.spleeter_instance
 
     def media_status(self, status):
         if status == QMediaPlayer.LoadedMedia:
@@ -786,7 +802,7 @@ class NotyCaptionWindow(QMainWindow):
 
         try:
             self.prog_main.setValue(10)
-            separator = Separator('spleeter:2stems')
+            separator = self.get_spleeter()
             separator.separate_to_file(self.audio_file, temp_dir, synchronous=True)
             self.prog_main.setValue(60)
 
@@ -907,17 +923,24 @@ class NotyCaptionWindow(QMainWindow):
 
         try:
             logger.info("Attempting vocal separation with Spleeter...")
-            separator = Separator('spleeter:2stems')
-            separator.separate_to_file(self.audio_file, temp_dir)
+            self.prog_main.setValue(5)
+            separator = self.get_spleeter()
+            separator.separate_to_file(self.audio_file, temp_dir, synchronous=True)
+            self.prog_main.setValue(40)
+
             base_name = os.path.splitext(os.path.basename(self.audio_file))[0]
             vocals_path = os.path.join(temp_dir, base_name, 'vocals.wav')
             if os.path.exists(vocals_path):
                 shutil.move(vocals_path, enhanced_audio)
                 use_enhanced = True
+                self.prog_main.setValue(60)
                 logger.info("Using enhanced vocals for transcription")
+            else:
+                logger.warning("Spleeter did not produce vocals.wav → using original")
         except Exception as e:
-            logger.warning(f"Spleeter failed: {e} → falling back to original audio")
+            logger.warning(f"Spleeter failed or skipped: {e} → falling back to original audio")
             enhanced_audio = self.audio_file
+            self.prog_main.setValue(40)
 
         lang = self.lang_combo.currentText()
         lang_code = "ja" if "japanese" in lang.lower() else "en"
@@ -938,7 +961,7 @@ class NotyCaptionWindow(QMainWindow):
                 self.gen_btn.setEnabled(True)
                 return
 
-        self.prog_main.setValue(0)
+        self.prog_main.setValue(65)
         self.prog_frame.setValue(0)
 
         if self.mode == "online":
@@ -964,9 +987,9 @@ class NotyCaptionWindow(QMainWindow):
         else:
             logger.info("Starting LOCAL Whisper generation")
             try:
-                self.prog_main.setValue(10)
+                self.prog_main.setValue(70)
                 model = self.load_whisper_model()
-                self.prog_main.setValue(20)
+                self.prog_main.setValue(75)
 
                 logger.info("Starting transcription...")
                 result = model.transcribe(
@@ -975,7 +998,7 @@ class NotyCaptionWindow(QMainWindow):
                     task=task,
                     word_timestamps=True
                 )
-                self.prog_main.setValue(70)
+                self.prog_main.setValue(90)
                 logger.info("Transcription finished")
 
                 self.subtitles = []
@@ -1016,7 +1039,7 @@ class NotyCaptionWindow(QMainWindow):
                         self.display_lines.append(line)
                         idx += 1
 
-                self.prog_main.setValue(92)
+                self.prog_main.setValue(95)
 
                 preview = "\n".join(self.display_lines)
                 self.caption_edit.setText(preview.strip())
