@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QLineEdit, QScrollArea, QSlider, QProgressBar, QDialog,
     QGroupBox, QRadioButton,
 )
-from PyQt5.QtWidgets import QStyleFactory, QDesktopWidget
+from PyQt5.QtWidgets import QStyleFactory
 from PyQt5.QtGui import QIcon, QColor, QTextCursor, QFont, QPalette
 from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal
 from PyQt5.QtGui import QCloseEvent
@@ -55,7 +55,12 @@ def resource_path(relative_path):
 # LOGGING SETUP
 # ──────────────────────────────────────────────
 def setup_logging():
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.join(os.getenv('APPDATA'), 'NotyCaption')
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    log_dir = os.path.join(base_dir, "logs")
     os.makedirs(log_dir, exist_ok=True)
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3]
@@ -82,7 +87,7 @@ logger = setup_logging()
 
 class SingleInstance:
     def __init__(self):
-        self.mutexname = "NotyCaption_SingleInstance_Mutex_Unique_v2026"
+        self.mutexname = r"Global\NotyCaption_SingleInstance_Mutex_Unique_v2026"
         self.mutex = win32event.CreateMutex(None, True, self.mutexname)
         self.already_exists = (win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS)
         if not self.already_exists:
@@ -481,7 +486,7 @@ class NotyCaptionWindow(QMainWindow):
 
     def center(self):
         qr = self.frameGeometry()
-        cp = QDesktopWidget().availableGeometry().center()
+        cp = QApplication.desktop().screenGeometry().center()
         qr.moveCenter(cp)
         self.move(qr.topLeft())
 
@@ -1119,7 +1124,7 @@ class NotyCaptionWindow(QMainWindow):
         QMessageBox.information(self, "Edits Saved", "Changes applied.")
 
 
-if __name__ == "__main__":
+if __name__ == "__module__":
     app = QApplication(sys.argv)
 
     instance = SingleInstance()
