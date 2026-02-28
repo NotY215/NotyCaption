@@ -73,6 +73,7 @@ def setup_logging():
     logging.info(f"Python version: {sys.version}")
     logging.info(f"Working directory: {os.getcwd()}")
     logging.info(f"Log file: {log_file}")
+    logging.info(f"PyInstaller frozen: {getattr(sys, 'frozen', False)}")
     return logging.getLogger("NotyCaption")
 
 
