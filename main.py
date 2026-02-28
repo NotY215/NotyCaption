@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QComboBox, QSpinBox, QPushButton, QTextEdit, QFileDialog,
     QMessageBox, QLineEdit, QScrollArea, QSlider, QProgressBar, QDialog,
-    QSizePolicy, QStyleFactory, QDesktopWidget, QGroupBox, QRadioButton,
+    QGroupBox, QRadioButton,
 )
 from PyQt5.QtGui import QIcon, QColor, QTextCursor, QFont, QPalette
 from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal
@@ -32,10 +32,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 import webbrowser
 import win32event
-import win32api
-import win32con
-import win32gui
 import winerror
+
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
@@ -45,27 +43,19 @@ def resource_path(relative_path):
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
-
     return os.path.join(base_path, relative_path)
 
 
 class SingleInstance:
     def __init__(self):
-        self.mutexname = "NotyCaption_SingleInstance_Mutex_Unique"
-        self.mutex = win32event.CreateMutex(None, False, self.mutexname)
-        self.lasterror = win32api.GetLastError()
+        self.mutexname = "NotyCaption_SingleInstance_Mutex_Unique_v2"
+        self.mutex = win32event.CreateMutex(None, True, self.mutexname)
+        self.already_exists = (win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS)
+        if not self.already_exists:
+            win32event.ReleaseMutex(self.mutex)
 
-    def already_running(self):
-        return (self.lasterror == winerror.ERROR_ALREADY_EXISTS)
-
-    def activate_window(self):
-        def enum_window_callback(hwnd, title):
-            if title == win32gui.GetWindowText(hwnd):
-                win32gui.SetForegroundWindow(hwnd)
-                return False
-            return True
-
-        win32gui.EnumWindows(enum_window_callback, "NotyCaption by NotY215")
+    def is_already_running(self):
+        return self.already_exists
 
 
 # ──────────────────────────────────────────────
@@ -164,7 +154,7 @@ class SettingsDialog(QDialog):
         tmp_gb.setLayout(tmp_lay)
         lay.addWidget(tmp_gb)
 
-        mod_gb = QGroupBox("Whisper Models Folder (cache)")
+        mod_gb = QGroupBox("Whisper Models Folder")
         mod_lay = QHBoxLayout()
         self.mod_edit = QLineEdit(current_settings.get("models_dir", CURRENT_DIR))
         mod_btn = QPushButton("Browse")
@@ -252,6 +242,7 @@ class NotyCaptionWindow(QMainWindow):
         self.left_layout.addWidget(self.caption_edit, 1)
 
         btn_row = QHBoxLayout()
+
         self.edit_btn = QPushButton("Edit Captions")
         self.edit_btn.setMinimumHeight(64)
         self.edit_btn.setStyleSheet("background:#0a84ff; color:white; border-radius:10px; font-weight:bold;")
@@ -296,7 +287,6 @@ class NotyCaptionWindow(QMainWindow):
         self.mode_combo.addItems(["Normal (Local)", "Online (Colab + Drive)"])
         self.mode_combo.setMinimumHeight(54)
         self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
-        self.mode_combo.setVisible(False)
         self.right_layout.addWidget(self.mode_combo, r, 0, 1, 2)
         r += 1
 
@@ -382,7 +372,6 @@ class NotyCaptionWindow(QMainWindow):
         self.gen_btn.clicked.connect(self.generate)
         bottom.addWidget(self.gen_btn)
 
-        # Progress bars
         prog_v = QVBoxLayout()
         bottom.addLayout(prog_v)
 
@@ -442,7 +431,10 @@ class NotyCaptionWindow(QMainWindow):
                 creds.refresh(Request())
             self.service = build("drive", "v3", credentials=creds)
             self.login_button.setVisible(False)
-            self.mode_combo.setVisible(True)
+            self.mode_combo.setCurrentText("Online (Colab + Drive)")
+            self.mode = "online"
+
+        self.update_download_button_visibility()
 
     def center(self):
         qr = self.frameGeometry()
@@ -496,6 +488,16 @@ class NotyCaptionWindow(QMainWindow):
         self.settings = new_settings
         self.apply_ui_scale()
         self.apply_theme()
+        self.update_download_button_visibility()
+
+    def update_download_button_visibility(self):
+        if self.mode == "online":
+            self.download_btn.setVisible(False)
+            return
+
+        model_path = os.path.join(self.settings["models_dir"], "large-v3.pt")
+        exists = os.path.isfile(model_path)
+        self.download_btn.setVisible(not exists)
 
     def closeEvent(self, event: QCloseEvent):
         if self.audio_file and self.audio_file.endswith(".temp.wav") and os.path.exists(self.audio_file):
@@ -530,7 +532,9 @@ class NotyCaptionWindow(QMainWindow):
                 token.write(creds.to_json())
             self.service = build("drive", "v3", credentials=creds)
             self.login_button.setVisible(False)
-            self.mode_combo.setVisible(True)
+            self.mode_combo.setCurrentText("Online (Colab + Drive)")
+            self.mode = "online"
+            self.update_download_button_visibility()
             QMessageBox.information(self, "Success", "Google Drive connected.")
         else:
             QMessageBox.warning(self, "Missing client.json",
@@ -538,9 +542,7 @@ class NotyCaptionWindow(QMainWindow):
 
     def on_mode_changed(self, text):
         self.mode = "online" if "Online" in text else "normal"
-        self.mode_combo.blockSignals(True)
-        self.mode_combo.setCurrentText(text)
-        self.mode_combo.blockSignals(False)
+        self.update_download_button_visibility()
 
     def load_whisper_model(self):
         return whisper.load_model("large-v3", download_root=self.settings["models_dir"])
@@ -645,8 +647,8 @@ class NotyCaptionWindow(QMainWindow):
                     self.audio_file = new_temp
                     success = True
                 clip.close()
-            except:
-                pass
+            except Exception as e:
+                print("Video audio extract failed:", e)
 
         if not success:
             try:
@@ -655,7 +657,8 @@ class NotyCaptionWindow(QMainWindow):
                 self.audio_file = new_temp
                 audio_clip.close()
                 success = True
-            except:
+            except Exception as e:
+                print("Audio convert failed:", e)
                 self.audio_file = path
                 QMessageBox.warning(self, "Conversion Warning", "Could not convert to WAV. Using original file.")
 
@@ -735,33 +738,40 @@ class NotyCaptionWindow(QMainWindow):
         dlg.setLayout(lay)
         if dlg.exec_() != QDialog.Accepted:
             return
+
         if rb_already.isChecked():
-            file, _ = QFileDialog.getOpenFileName(self, "Select Model File", "", "Model Files (*.pt)")
+            file, _ = QFileDialog.getOpenFileName(self, "Select large-v3.pt", "", "PyTorch Model (*.pt)")
             if not file:
                 return
             if os.path.basename(file) != "large-v3.pt":
-                QMessageBox.warning(self, "Invalid File", "Please select 'large-v3.pt'")
+                QMessageBox.warning(self, "Invalid File", "Please select the file named large-v3.pt")
                 return
             new_dir = os.path.dirname(file)
             self.settings["models_dir"] = new_dir
             save_settings(self.settings)
-            QMessageBox.information(self, "Success", "Model linked successfully.")
+            self.update_download_button_visibility()
+            QMessageBox.information(self, "Success", "Model location linked successfully.")
+            return
+
+        # Download case
+        if rb_custom.isChecked():
+            path = QFileDialog.getExistingDirectory(self, "Select Folder to Download Model")
+            if not path:
+                return
         else:
-            if rb_custom.isChecked():
-                path = QFileDialog.getExistingDirectory(self, "Select Download Folder")
-                if not path:
-                    return
-            else:
-                path = self.settings["models_dir"]
-            self.settings["models_dir"] = path
-            save_settings(self.settings)
-            cmd = ['cmd.exe', '/c', 'python', '-c', f"import whisper; whisper.load_model('large-v3', download_root=r'{path}')", '&&', 'echo Download complete. Press any key to close.', '&', 'pause']
-            p = subprocess.Popen(cmd)
-            p.wait()
-            if p.returncode == 0:
-                QMessageBox.information(self, "Congratulations", "You have successfully downloaded the model.")
-            else:
-                QMessageBox.warning(self, "Error", "Download failed.")
+            path = self.settings["models_dir"]
+
+        self.settings["models_dir"] = path
+        save_settings(self.settings)
+        self.update_download_button_visibility()
+
+        cmd = [
+            'cmd', '/c',
+            'python', '-c',
+            f"import whisper; whisper.load_model('large-v3', download_root=r'{path}')",
+            '&&', 'echo.', '&&', 'echo Download finished successfully.', '&&', 'pause'
+        ]
+        subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
 
     def generate(self):
         if self.is_generating:
@@ -985,8 +995,8 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     instance = SingleInstance()
-    if instance.already_running():
-        instance.activate_window()
+    if instance.is_already_running():
+        QMessageBox.warning(None, "Already Running", "NotyCaption is already open.")
         sys.exit(0)
 
     icon_path = resource_path('App.ico')
