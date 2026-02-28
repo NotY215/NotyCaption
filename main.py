@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QLineEdit, QScrollArea, QSlider, QProgressBar, QDialog,
     QGroupBox, QRadioButton,
 )
+from PyQt5.QtWidgets import QStyleFactory
 from PyQt5.QtGui import QIcon, QColor, QTextCursor, QFont, QPalette
 from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal
 from PyQt5.QtGui import QCloseEvent
