@@ -45,15 +45,15 @@ def resource_path(relative_path):
 
 class SingleInstance:
     def __init__(self):
-        self.memory = QSharedMemory("NotyCaption_SingleInstance_UniqueKey")
+        self.memory = QSharedMemory("NotyCaption_SingleInstance_Key_Unique")
         if self.memory.attach():
-            self.memory.detach()
-            sys.exit(0)
+            self.running = True
         else:
+            self.running = False
             self.memory.create(1)
 
-    def __del__(self):
-        self.memory.detach()
+    def is_running(self):
+        return self.running
 
 
 # ──────────────────────────────────────────────
@@ -102,6 +102,9 @@ def load_settings():
         return defaults
 
 
+# ──────────────────────────────────────────────
+# SETTINGS DIALOG
+# ──────────────────────────────────────────────
 class SettingsDialog(QDialog):
     settingsChanged = pyqtSignal(dict)
 
@@ -191,6 +194,9 @@ class SettingsDialog(QDialog):
         self.accept()
 
 
+# ──────────────────────────────────────────────
+# MAIN WINDOW
+# ──────────────────────────────────────────────
 class NotyCaptionWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -215,6 +221,7 @@ class NotyCaptionWindow(QMainWindow):
         self.top_layout = QHBoxLayout()
         self.main_layout.addLayout(self.top_layout)
 
+        # Left - Editor
         self.left_panel = QWidget()
         self.left_panel.setMaximumWidth(620)
         self.left_layout = QVBoxLayout()
@@ -248,6 +255,7 @@ class NotyCaptionWindow(QMainWindow):
 
         self.left_layout.addLayout(btn_row)
 
+        # Right - Controls
         self.right_scroll = QScrollArea()
         self.right_scroll.setWidgetResizable(True)
         self.top_layout.addWidget(self.right_scroll)
@@ -269,7 +277,7 @@ class NotyCaptionWindow(QMainWindow):
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["Normal (Local)", "Online (Colab + Drive)"])
         self.mode_combo.setMinimumHeight(54)
-        self.mode_combo.currentTextChanged.connect(self.set_mode)
+        self.mode_combo.currentTextChanged.connect(self.on_mode_changed)
         self.mode_combo.setVisible(False)
         self.right_layout.addWidget(self.mode_combo, r, 0, 1, 2)
         r += 1
@@ -332,6 +340,7 @@ class NotyCaptionWindow(QMainWindow):
         self.right_layout.addWidget(self.enhance_btn, r, 0, 1, 2)
         r += 1
 
+        # Bottom controls
         bottom = QHBoxLayout()
         self.main_layout.addLayout(bottom)
 
@@ -355,6 +364,7 @@ class NotyCaptionWindow(QMainWindow):
         self.gen_btn.clicked.connect(self.generate)
         bottom.addWidget(self.gen_btn)
 
+        # Progress bars
         prog_v = QVBoxLayout()
         bottom.addLayout(prog_v)
 
@@ -380,6 +390,7 @@ class NotyCaptionWindow(QMainWindow):
         footer.setStyleSheet("color:#6c757d; font-size:11px; margin:12px 0;")
         self.main_layout.addWidget(footer)
 
+        # State variables
         self.input_file = None
         self.audio_file = None
         self.output_folder = None
@@ -406,7 +417,6 @@ class NotyCaptionWindow(QMainWindow):
         self.poll_output_name = None
         self.poll_local_out = None
         self.is_generating = False
-        self.colab_already_opened = False  # ← NEW: prevent multiple browser tabs
 
         if os.path.exists("token.json"):
             creds = Credentials.from_authorized_user_file("token.json", SCOPES)
@@ -508,9 +518,11 @@ class NotyCaptionWindow(QMainWindow):
             QMessageBox.warning(self, "Missing client.json",
                                 f"client.json not found.\n\nExpected location: {client_path}")
 
-    def set_mode(self, text):
+    def on_mode_changed(self, text):
         self.mode = "online" if "Online" in text else "normal"
-        self.colab_already_opened = False  # Reset when mode changes
+        self.mode_combo.blockSignals(True)
+        self.mode_combo.setCurrentText(text)
+        self.mode_combo.blockSignals(False)
 
     def load_whisper_model(self):
         return whisper.load_model("large-v3")
@@ -687,10 +699,8 @@ class NotyCaptionWindow(QMainWindow):
         if self.is_generating:
             QMessageBox.warning(self, "Busy", "Generation is already in progress. Please wait.")
             return
-
         self.is_generating = True
         self.gen_btn.setEnabled(False)
-        self.colab_already_opened = False  # Reset for this session
 
         if not self.audio_file or not os.path.exists(self.audio_file):
             QMessageBox.warning(self, "Error", "No audio loaded.")
@@ -734,7 +744,6 @@ class NotyCaptionWindow(QMainWindow):
 
         if self.mode == "online":
             try:
-                # Clean old polling
                 self.poll_timer.stop()
                 try:
                     self.poll_timer.timeout.disconnect()
@@ -747,6 +756,7 @@ class NotyCaptionWindow(QMainWindow):
                 if not success:
                     self.is_generating = False
                     self.gen_btn.setEnabled(True)
+                    return
             except Exception as e:
                 QMessageBox.critical(self, "Online Mode Failed", str(e))
                 self.is_generating = False
@@ -861,8 +871,8 @@ class NotyCaptionWindow(QMainWindow):
                 for sub in subs:
                     self.subtitles.append({
                         "index": sub.index,
-                        "start": sub.start,
-                        "end": sub.end,
+                        "start": timedelta(milliseconds=sub.start.ordinal),
+                        "end": timedelta(milliseconds=sub.end.ordinal),
                         "text": sub.text
                     })
                     self.display_lines.append(sub.text)
@@ -876,12 +886,12 @@ class NotyCaptionWindow(QMainWindow):
                         "text": event.text
                     })
                     self.display_lines.append(event.text)
-            self.caption_edit.setText("\n".join(self.display_lines))
+            preview = "\n".join(self.display_lines)
+            self.caption_edit.setText(preview.strip())
             self.generated = True
             self.edit_btn.setEnabled(True)
-            QMessageBox.information(self, "Preview Loaded", "Online subtitles loaded into editor.")
         except Exception as e:
-            QMessageBox.warning(self, "Preview Load Failed", f"Could not load subtitles:\n{str(e)}")
+            QMessageBox.warning(self, "Load Failed", f"Could not load subtitles for preview:\n{str(e)}")
 
     def toggle_edit(self):
         if not self.generated:
@@ -904,8 +914,12 @@ class NotyCaptionWindow(QMainWindow):
 
 
 if __name__ == "__main__":
-    SingleInstance()
     app = QApplication(sys.argv)
+
+    instance = SingleInstance()
+    if instance.is_running():
+        QMessageBox.warning(None, "Already Running", "NotyCaption is already running.")
+        sys.exit(0)
 
     icon_path = resource_path('App.ico')
     if os.path.exists(icon_path):

@@ -8,6 +8,7 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QMessageBox
 import webbrowser
+import sys
 import pysrt
 
 
@@ -20,6 +21,9 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+# ==============================
+# MAIN ONLINE HANDLER
+# ==============================
 def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path):
 
     if not self.service:
@@ -27,6 +31,7 @@ def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path)
         return False
 
     try:
+        # Check for existing output and prompt to overwrite
         self.poll_output_name = f"{base}_captions{fmt}"
         query = f"name='{self.poll_output_name}' and trashed=false"
         results = self.service.files().list(q=query, fields="files(id,name)").execute()
@@ -38,11 +43,13 @@ def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path)
             for f in files:
                 self.service.files().delete(fileId=f["id"]).execute()
 
+        # Delete old notebooks to avoid clutter
         query = "name='NotyCaption_Generator.ipynb' and trashed=false"
         results = self.service.files().list(q=query, fields="files(id)").execute()
         for f in results.get("files", []):
             self.service.files().delete(fileId=f["id"]).execute()
 
+        # Upload audio
         uploads_id = get_or_create_folder(self.service, "uploads")
         audio_filename = os.path.basename(audio_to_use)
         audio_id = upload_file(self.service, audio_to_use, audio_filename, uploads_id)
@@ -52,6 +59,7 @@ def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path)
         if not results.get("files", []):
             raise Exception("Audio upload failed - file not found in Drive.")
 
+        # Generate notebook
         notebook_content = generate_notebook_content(
             audio_filename,
             wpl,
@@ -68,20 +76,15 @@ def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path)
         notebook_id = upload_file(self.service, temp_ipynb, temp_ipynb)
         os.remove(temp_ipynb)
 
-        # Only open browser if not already opened this session
-        if not self.colab_already_opened:
-            colab_url = f"https://colab.research.google.com/drive/{notebook_id}"
-            webbrowser.open(colab_url)
-            self.colab_already_opened = True
+        colab_url = f"https://colab.research.google.com/drive/{notebook_id}"
+        webbrowser.open(colab_url)
 
         QMessageBox.information(
             self,
-            "Colab Session",
-            "Notebook ready.\n\n"
-            "If tab did not open, click the link manually:\n"
-            f"https://colab.research.google.com/drive/{notebook_id}\n\n"
-            "Wait 60s → Runtime → Run All.\n"
-            "App will auto-download when finished."
+            "Colab Opened",
+            "Notebook opened in browser.\n\n"
+            "Wait 60 seconds → then Runtime → Run All.\n"
+            "After completion, app auto-downloads result."
         )
 
         self.poll_audio_id = audio_id
@@ -103,6 +106,9 @@ def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path)
     return True
 
 
+# ==============================
+# DRIVE HELPERS
+# ==============================
 def get_or_create_folder(service, name):
     query = f"name='{name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
     results = service.files().list(q=query, fields="files(id, name)").execute()
@@ -125,6 +131,9 @@ def upload_file(service, filepath, filename, parent_id=None):
     return file.get("id")
 
 
+# ==============================
+# NOTEBOOK GENERATOR
+# ==============================
 def generate_notebook_content(audio_filename, words_per_line, fmt, output_name, lang_code='en', task='transcribe'):
 
     def code_cell(lines):
@@ -239,6 +248,9 @@ def generate_notebook_content(audio_filename, words_per_line, fmt, output_name, 
     return notebook
 
 
+# ==============================
+# POLLING FOR OUTPUT
+# ==============================
 def poll_for_output(self):
 
     query = f"name='{self.poll_output_name}' and trashed=false"
@@ -264,23 +276,16 @@ def poll_for_output(self):
     except Exception as e:
         return
 
-    try:
-        self.load_downloaded_subtitles(self.poll_local_out)
-    except AttributeError:
-        pass
+    # Load to preview
+    self.load_downloaded_subtitles(self.poll_local_out)
 
-    try:
-        self.service.files().delete(fileId=self.poll_audio_id).execute()
-    except:
-        pass
-    try:
-        self.service.files().delete(fileId=self.poll_notebook_id).execute()
-    except:
-        pass
-    try:
-        self.service.files().delete(fileId=file_id).execute()
-    except:
-        pass
+    # Cleanup
+    try: self.service.files().delete(fileId=self.poll_audio_id).execute()
+    except: pass
+    try: self.service.files().delete(fileId=self.poll_notebook_id).execute()
+    except: pass
+    try: self.service.files().delete(fileId=file_id).execute()
+    except: pass
 
     self.poll_timer.stop()
 
