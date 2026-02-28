@@ -8,6 +8,8 @@ import os
 import json
 import shutil
 import subprocess
+import datetime
+import logging
 from datetime import timedelta
 import whisper
 from cryptography.fernet import Fernet
@@ -17,7 +19,6 @@ from PyQt5.QtWidgets import (
     QMessageBox, QLineEdit, QScrollArea, QSlider, QProgressBar, QDialog,
     QGroupBox, QRadioButton,
 )
-from PyQt5.QtWidgets import QDesktopWidget, QStyleFactory
 from PyQt5.QtGui import QIcon, QColor, QTextCursor, QFont, QPalette
 from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal
 from PyQt5.QtGui import QCloseEvent
@@ -34,23 +35,42 @@ from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 import webbrowser
 import win32event
 import winerror
-import win32api
 
 
-SCOPES = ['https://www.googleapis.com/auth/drive']
+# ──────────────────────────────────────────────
+# LOGGING SETUP
+# ──────────────────────────────────────────────
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGS_DIR = os.path.join(CURRENT_DIR, "logs")
+os.makedirs(LOGS_DIR, exist_ok=True)
 
+now = datetime.datetime.now()
+log_filename = now.strftime("%Y-%m-%d_%H%M%S_%f")[:-3] + ".log"
+log_path = os.path.join(LOGS_DIR, log_filename)
 
-def resource_path(relative_path):
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-    return os.path.join(base_path, relative_path)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s | %(levelname)-8s | %(message)s',
+    handlers=[
+        logging.FileHandler(log_path, encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)  # also show in console when running as script
+    ]
+)
 
+logger = logging.getLogger("NotyCaption")
 
+logger.info("NotyCaption started")
+logger.info(f"Python version: {sys.version}")
+logger.info(f"Current working directory: {os.getcwd()}")
+logger.info(f"Executable path: {sys.executable}")
+logger.info(f"Log file: {log_path}")
+
+# ──────────────────────────────────────────────
+# SINGLE INSTANCE CHECK
+# ──────────────────────────────────────────────
 class SingleInstance:
     def __init__(self):
-        self.mutexname = "NotyCaption_SingleInstance_Mutex_Unique_v2"
+        self.mutexname = "NotyCaption_SingleInstance_Mutex_Unique_v2025"
         self.mutex = win32event.CreateMutex(None, True, self.mutexname)
         self.already_exists = (win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS)
         if not self.already_exists:
@@ -63,7 +83,6 @@ class SingleInstance:
 # ──────────────────────────────────────────────
 # SETTINGS & ENCRYPTION
 # ──────────────────────────────────────────────
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(CURRENT_DIR, "settings.notcapz")
 KEY_FILE = os.path.join(CURRENT_DIR, "key.notcapz")
 
@@ -79,10 +98,14 @@ def load_or_create_key():
 fernet = Fernet(load_or_create_key())
 
 def save_settings(settings_dict):
-    data = json.dumps(settings_dict, ensure_ascii=False).encode('utf-8')
-    encrypted = fernet.encrypt(data)
-    with open(SETTINGS_FILE, "wb") as f:
-        f.write(encrypted)
+    try:
+        data = json.dumps(settings_dict, ensure_ascii=False).encode('utf-8')
+        encrypted = fernet.encrypt(data)
+        with open(SETTINGS_FILE, "wb") as f:
+            f.write(encrypted)
+        logger.info("Settings saved successfully")
+    except Exception as e:
+        logger.error(f"Failed to save settings: {e}", exc_info=True)
 
 def load_settings():
     defaults = {
@@ -93,6 +116,7 @@ def load_settings():
     }
     if not os.path.exists(SETTINGS_FILE):
         save_settings(defaults)
+        logger.info("Created default settings file")
         return defaults
     try:
         with open(SETTINGS_FILE, "rb") as f:
@@ -100,8 +124,10 @@ def load_settings():
         dec = fernet.decrypt(enc).decode('utf-8')
         loaded = json.loads(dec)
         defaults.update(loaded)
+        logger.info("Settings loaded successfully")
         return defaults
-    except:
+    except Exception as e:
+        logger.error(f"Failed to load settings, using defaults: {e}", exc_info=True)
         save_settings(defaults)
         return defaults
 
@@ -209,6 +235,9 @@ class NotyCaptionWindow(QMainWindow):
         icon_path = resource_path('App.ico')
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
+            logger.info(f"Window icon loaded: {icon_path}")
+        else:
+            logger.warning("App.ico not found")
 
         self.settings = load_settings()
         self.apply_ui_scale()
@@ -428,15 +457,21 @@ class NotyCaptionWindow(QMainWindow):
         self.is_generating = False
 
         if os.path.exists("token.json"):
-            creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            self.service = build("drive", "v3", credentials=creds)
-            self.login_button.setVisible(False)
-            self.mode_combo.setCurrentText("Online (Colab + Drive)")
-            self.mode = "online"
+            try:
+                creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                self.service = build("drive", "v3", credentials=creds)
+                self.login_button.setVisible(False)
+                self.mode_combo.setCurrentText("Online (Colab + Drive)")
+                self.mode = "online"
+                logger.info("Google Drive authenticated from token.json")
+            except Exception as e:
+                logger.error(f"Failed to load Google credentials: {e}", exc_info=True)
 
         self.update_download_button_visibility()
+
+        logger.info("Main window initialized")
 
     def center(self):
         qr = self.frameGeometry()
@@ -450,38 +485,45 @@ class NotyCaptionWindow(QMainWindow):
             scale = float(scale_str.rstrip("%")) / 100.0
         except:
             scale = 1.0
+            logger.warning("Invalid UI scale value, using 100%")
         font = QApplication.font()
         font.setPointSizeF(font.pointSizeF() * scale)
         QApplication.setFont(font)
         self.resize(int(920 * scale), int(780 * scale))
+        logger.info(f"UI scale applied: {scale*100}%")
 
     def apply_theme(self):
         theme = self.settings.get("theme", "Dark")
-        if theme == "Light":
-            pal = QPalette()
-            pal.setColor(QPalette.Window, QColor(245,245,245))
-            pal.setColor(QPalette.WindowText, QColor(30,30,30))
-            pal.setColor(QPalette.Base, Qt.white)
-            pal.setColor(QPalette.Text, QColor(30,30,30))
-            pal.setColor(QPalette.Button, QColor(230,230,230))
-            pal.setColor(QPalette.ButtonText, QColor(30,30,30))
-            pal.setColor(QPalette.Highlight, QColor(0,122,255))
-            self.setPalette(pal)
-        elif theme == "Windows Default":
-            QApplication.setStyle(QStyleFactory.create('windowsvista'))
-        else:
-            pal = QPalette()
-            pal.setColor(QPalette.Window, QColor(28,28,30))
-            pal.setColor(QPalette.WindowText, Qt.white)
-            pal.setColor(QPalette.Base, QColor(36,36,38))
-            pal.setColor(QPalette.Text, Qt.white)
-            pal.setColor(QPalette.Button, QColor(44,44,48))
-            pal.setColor(QPalette.ButtonText, Qt.white)
-            pal.setColor(QPalette.Highlight, QColor(10,132,255))
-            self.setPalette(pal)
-            QApplication.setStyle(QStyleFactory.create('Fusion'))
+        try:
+            if theme == "Light":
+                pal = QPalette()
+                pal.setColor(QPalette.Window, QColor(245,245,245))
+                pal.setColor(QPalette.WindowText, QColor(30,30,30))
+                pal.setColor(QPalette.Base, Qt.white)
+                pal.setColor(QPalette.Text, QColor(30,30,30))
+                pal.setColor(QPalette.Button, QColor(230,230,230))
+                pal.setColor(QPalette.ButtonText, QColor(30,30,30))
+                pal.setColor(QPalette.Highlight, QColor(0,122,255))
+                self.setPalette(pal)
+            elif theme == "Windows Default":
+                QApplication.setStyle(QStyleFactory.create('windowsvista'))
+            else:
+                pal = QPalette()
+                pal.setColor(QPalette.Window, QColor(28,28,30))
+                pal.setColor(QPalette.WindowText, Qt.white)
+                pal.setColor(QPalette.Base, QColor(36,36,38))
+                pal.setColor(QPalette.Text, Qt.white)
+                pal.setColor(QPalette.Button, QColor(44,44,48))
+                pal.setColor(QPalette.ButtonText, Qt.white)
+                pal.setColor(QPalette.Highlight, QColor(10,132,255))
+                self.setPalette(pal)
+                QApplication.setStyle(QStyleFactory.create('Fusion'))
+            logger.info(f"Theme applied: {theme}")
+        except Exception as e:
+            logger.error(f"Theme application failed: {e}", exc_info=True)
 
     def open_settings(self):
+        logger.info("Settings dialog opened")
         dlg = SettingsDialog(self.settings, self)
         dlg.settingsChanged.connect(self.update_settings)
         dlg.exec_()
@@ -491,27 +533,33 @@ class NotyCaptionWindow(QMainWindow):
         self.apply_ui_scale()
         self.apply_theme()
         self.update_download_button_visibility()
+        logger.info("Settings updated")
 
     def update_download_button_visibility(self):
         if self.mode == "online":
             self.download_btn.setVisible(False)
+            logger.info("Download button hidden (online mode)")
             return
 
         model_path = os.path.join(self.settings["models_dir"], "large-v3.pt")
         exists = os.path.isfile(model_path)
         self.download_btn.setVisible(not exists)
+        logger.info(f"Model exists at {model_path}: {exists} → Download button visible: {not exists}")
 
     def closeEvent(self, event: QCloseEvent):
+        logger.info("Application closing...")
         if self.audio_file and self.audio_file.endswith(".temp.wav") and os.path.exists(self.audio_file):
             try:
                 os.remove(self.audio_file)
-            except:
-                pass
+                logger.info(f"Removed temp audio: {self.audio_file}")
+            except Exception as e:
+                logger.warning(f"Failed to remove temp audio: {e}")
         if self.last_temp_wav and os.path.exists(self.last_temp_wav):
             try:
                 os.remove(self.last_temp_wav)
-            except:
-                pass
+                logger.info(f"Removed last temp wav: {self.last_temp_wav}")
+            except Exception as e:
+                logger.warning(f"Failed to remove last temp wav: {e}")
         self.poll_timer.stop()
 
         if self.service:
@@ -519,35 +567,56 @@ class NotyCaptionWindow(QMainWindow):
                 from online import empty_uploads, delete_temp_notebooks
                 empty_uploads(self.service)
                 delete_temp_notebooks(self.service)
-            except:
-                pass
+                logger.info("Cleaned up Google Drive temp files")
+            except Exception as e:
+                logger.warning(f"Failed to clean Drive: {e}")
 
+        logger.info("Application closed cleanly")
         super().closeEvent(event)
 
     def google_login(self):
+        logger.info("Google login initiated")
         client_path = resource_path("client.json")
 
         if os.path.exists(client_path):
-            flow = InstalledAppFlow.from_client_secrets_file(client_path, SCOPES)
-            creds = flow.run_local_server(port=0)
-            with open("token.json", "w") as token:
-                token.write(creds.to_json())
-            self.service = build("drive", "v3", credentials=creds)
-            self.login_button.setVisible(False)
-            self.mode_combo.setCurrentText("Online (Colab + Drive)")
-            self.mode = "online"
-            self.update_download_button_visibility()
-            QMessageBox.information(self, "Success", "Google Drive connected.")
+            try:
+                flow = InstalledAppFlow.from_client_secrets_file(client_path, SCOPES)
+                creds = flow.run_local_server(port=0)
+                with open("token.json", "w") as token:
+                    token.write(creds.to_json())
+                self.service = build("drive", "v3", credentials=creds)
+                self.login_button.setVisible(False)
+                self.mode_combo.setCurrentText("Online (Colab + Drive)")
+                self.mode = "online"
+                self.update_download_button_visibility()
+                logger.info("Google Drive login successful")
+                QMessageBox.information(self, "Success", "Google Drive connected.")
+            except Exception as e:
+                logger.error(f"Google login failed: {e}", exc_info=True)
+                QMessageBox.critical(self, "Login Failed", str(e))
         else:
+            logger.warning(f"client.json not found at {client_path}")
             QMessageBox.warning(self, "Missing client.json",
                                 f"client.json not found.\n\nExpected location: {client_path}")
 
     def on_mode_changed(self, text):
         self.mode = "online" if "Online" in text else "normal"
         self.update_download_button_visibility()
+        logger.info(f"Mode changed to: {self.mode}")
 
     def load_whisper_model(self):
-        return whisper.load_model("large-v3", download_root=self.settings["models_dir"])
+        try:
+            logger.info(f"Loading Whisper large-v3 model from {self.settings['models_dir']}")
+            model = whisper.load_model("large-v3", download_root=self.settings["models_dir"])
+            logger.info("Whisper model loaded successfully")
+            return model
+        except Exception as e:
+            logger.error(f"Failed to load Whisper model: {e}", exc_info=True)
+            raise
+
+    # ──────────────────────────────────────────────
+    # REMAINING METHODS (media, import, generate, etc.)
+    # ──────────────────────────────────────────────
 
     def media_status(self, status):
         if status == QMediaPlayer.LoadedMedia:
@@ -563,7 +632,9 @@ class NotyCaptionWindow(QMainWindow):
         self.timeline.setRange(0, dur)
 
     def player_error(self):
-        QMessageBox.warning(self, "Player Error", self.player.errorString() or "Unknown playback error")
+        err = self.player.errorString() or "Unknown playback error"
+        logger.error(f"Media player error: {err}")
+        QMessageBox.warning(self, "Player Error", err)
 
     def update_timeline(self):
         if self.duration_ms > 0:
@@ -571,24 +642,30 @@ class NotyCaptionWindow(QMainWindow):
 
     def toggle_play(self):
         if not self.audio_file or not os.path.exists(self.audio_file):
+            logger.warning("Attempted to play without audio file")
             QMessageBox.warning(self, "No Audio", "Import media first.")
             return
 
         if self.player.state() == QMediaPlayer.PlayingState:
             self.player.pause()
             self.play_btn.setText("Play")
+            logger.debug("Audio paused")
         else:
             try:
                 if self.loaded_media != self.audio_file:
                     self.player.setMedia(QMediaContent(QUrl.fromLocalFile(self.audio_file)))
                     self.loaded_media = self.audio_file
+                    logger.debug(f"Media set: {self.audio_file}")
                 self.player.play()
                 self.play_btn.setText("Pause")
+                logger.debug("Audio playing")
             except Exception as e:
+                logger.error(f"Playback failed: {e}", exc_info=True)
                 QMessageBox.warning(self, "Playback Error", str(e))
 
     def seek(self, pos):
         self.player.setPosition(pos)
+        logger.debug(f"Seek to {pos} ms")
 
     def update_highlight(self, ms):
         if not self.subtitles or not self.generated:
@@ -618,14 +695,17 @@ class NotyCaptionWindow(QMainWindow):
         cursor.endEditBlock()
 
     def import_file(self):
+        logger.info("Import file dialog opened")
         filter_str = (
             "Media Files (*.mp4 *.mkv *.avi *.mov *.webm *.flv *.wmv "
             "*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.wma *.amr *.opus)"
         )
         path, _ = QFileDialog.getOpenFileName(self, "Select Video or Audio", "", filter_str)
         if not path:
+            logger.info("Import cancelled")
             return
 
+        logger.info(f"Selected file: {path}")
         self.input_file = path
         self.output_folder = os.path.dirname(path)
         self.out_folder_edit.setText(self.output_folder)
@@ -637,8 +717,9 @@ class NotyCaptionWindow(QMainWindow):
         if self.last_temp_wav and os.path.exists(self.last_temp_wav):
             try:
                 os.remove(self.last_temp_wav)
-            except:
-                pass
+                logger.info(f"Removed previous temp file: {self.last_temp_wav}")
+            except Exception as e:
+                logger.warning(f"Could not remove old temp: {e}")
 
         success = False
         if path.lower().endswith(('.mp4','.mkv','.avi','.mov','.webm','.flv','.wmv')):
@@ -648,9 +729,10 @@ class NotyCaptionWindow(QMainWindow):
                     clip.audio.write_audiofile(new_temp, codec='pcm_s16le', logger=None)
                     self.audio_file = new_temp
                     success = True
+                    logger.info(f"Audio extracted from video to {new_temp}")
                 clip.close()
             except Exception as e:
-                print("Video audio extract failed:", e)
+                logger.error(f"Video audio extraction failed: {e}", exc_info=True)
 
         if not success:
             try:
@@ -659,30 +741,35 @@ class NotyCaptionWindow(QMainWindow):
                 self.audio_file = new_temp
                 audio_clip.close()
                 success = True
+                logger.info(f"Audio converted to WAV: {new_temp}")
             except Exception as e:
-                print("Audio convert failed:", e)
+                logger.warning(f"Audio conversion failed, using original: {e}")
                 self.audio_file = path
-                QMessageBox.warning(self, "Conversion Warning", "Could not convert to WAV. Using original file.")
 
         self.last_temp_wav = new_temp if success else None
         QMessageBox.information(self, "Success", "Media imported successfully.")
-        self.loaded_media = None
+        logger.info("Media import completed")
 
     def browse_output(self):
+        logger.info("Output folder browse opened")
         d = QFileDialog.getExistingDirectory(self, "Select Output Folder")
         if d:
             self.output_folder = d
             self.out_folder_edit.setText(d)
+            logger.info(f"Output folder set to: {d}")
 
     def enhance_audio_only(self):
         if not self.audio_file or not os.path.exists(self.audio_file):
+            logger.warning("Enhance called without audio")
             QMessageBox.warning(self, "Error", "No audio loaded.")
             return
 
+        logger.info("Audio enhancement started (Spleeter)")
         temp_dir = self.settings.get("temp_dir", QDir.tempPath())
         spleeter_models_dir = os.path.join(os.path.dirname(__file__), "pretrained_models", "2stems")
 
         if not os.path.exists(spleeter_models_dir):
+            logger.error("Spleeter pretrained models missing")
             QMessageBox.warning(self, "Spleeter Models Missing", "Spleeter pretrained models not found.")
             return
 
@@ -696,7 +783,7 @@ class NotyCaptionWindow(QMainWindow):
             vocals_path = os.path.join(temp_dir, base_name, 'vocals.wav')
 
             if not os.path.exists(vocals_path):
-                raise FileNotFoundError("vocals.wav not found")
+                raise FileNotFoundError("vocals.wav not found after separation")
 
             base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
             final_name = f"{base}_vocals_only.wav"
@@ -704,10 +791,12 @@ class NotyCaptionWindow(QMainWindow):
 
             shutil.move(vocals_path, final_path)
             self.prog_main.setValue(100)
+            logger.info(f"Vocals extracted to: {final_path}")
             QMessageBox.information(self, "Audio Enhanced", f"Vocals-only file created:\n{final_path}")
 
         except Exception as e:
             self.prog_main.setValue(0)
+            logger.error(f"Audio enhancement failed: {e}", exc_info=True)
             QMessageBox.warning(self, "Enhance Failed", f"Audio enhancement failed:\n{str(e)}")
 
         finally:
@@ -715,10 +804,12 @@ class NotyCaptionWindow(QMainWindow):
                 spleeter_out = os.path.join(temp_dir, base_name)
                 if os.path.exists(spleeter_out):
                     shutil.rmtree(spleeter_out, ignore_errors=True)
-            except:
-                pass
+                    logger.debug("Cleaned spleeter temp output")
+            except Exception as e:
+                logger.warning(f"Failed to clean spleeter temp: {e}")
 
     def download_model(self):
+        logger.info("Download model dialog opened")
         dlg = QDialog(self)
         dlg.setWindowTitle("Download Model Options")
         lay = QVBoxLayout()
@@ -739,26 +830,31 @@ class NotyCaptionWindow(QMainWindow):
         lay.addLayout(btns)
         dlg.setLayout(lay)
         if dlg.exec_() != QDialog.Accepted:
+            logger.info("Download model cancelled")
             return
 
         if rb_already.isChecked():
             file, _ = QFileDialog.getOpenFileName(self, "Select large-v3.pt", "", "PyTorch Model (*.pt)")
             if not file:
+                logger.info("Model link cancelled")
                 return
             if os.path.basename(file) != "large-v3.pt":
+                logger.warning("Selected wrong model file")
                 QMessageBox.warning(self, "Invalid File", "Please select the file named large-v3.pt")
                 return
             new_dir = os.path.dirname(file)
             self.settings["models_dir"] = new_dir
             save_settings(self.settings)
             self.update_download_button_visibility()
+            logger.info(f"Linked existing model: {file}")
             QMessageBox.information(self, "Success", "Model location linked successfully.")
             return
 
-        # Download case
+        # Download
         if rb_custom.isChecked():
             path = QFileDialog.getExistingDirectory(self, "Select Folder to Download Model")
             if not path:
+                logger.info("Custom download location cancelled")
                 return
         else:
             path = self.settings["models_dir"]
@@ -766,6 +862,7 @@ class NotyCaptionWindow(QMainWindow):
         self.settings["models_dir"] = path
         save_settings(self.settings)
         self.update_download_button_visibility()
+        logger.info(f"Model download starting to: {path}")
 
         cmd = [
             'cmd', '/c',
@@ -774,15 +871,19 @@ class NotyCaptionWindow(QMainWindow):
             '&&', 'echo.', '&&', 'echo Download finished successfully.', '&&', 'pause'
         ]
         subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+        logger.info("Opened cmd window for model download")
 
     def generate(self):
         if self.is_generating:
+            logger.warning("Generate called while already generating")
             QMessageBox.warning(self, "Busy", "Generation is already in progress. Please wait.")
             return
         self.is_generating = True
         self.gen_btn.setEnabled(False)
+        logger.info("Caption generation started")
 
         if not self.audio_file or not os.path.exists(self.audio_file):
+            logger.error("Generate called without audio file")
             QMessageBox.warning(self, "Error", "No audio loaded.")
             self.is_generating = False
             self.gen_btn.setEnabled(True)
@@ -800,7 +901,9 @@ class NotyCaptionWindow(QMainWindow):
             if os.path.exists(vocals_path):
                 shutil.move(vocals_path, enhanced_audio)
                 use_enhanced = True
-        except:
+                logger.info("Used enhanced vocals for transcription")
+        except Exception as e:
+            logger.warning(f"Spleeter enhancement failed, using original audio: {e}")
             enhanced_audio = self.audio_file
 
         lang = self.lang_combo.currentText()
@@ -815,6 +918,7 @@ class NotyCaptionWindow(QMainWindow):
         if os.path.exists(out_path):
             reply = QMessageBox.question(self, "Overwrite?", f"{out_path} already exists.\nOverwrite?", QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.No:
+                logger.info("User cancelled overwrite")
                 self.is_generating = False
                 self.gen_btn.setEnabled(True)
                 return
@@ -823,6 +927,7 @@ class NotyCaptionWindow(QMainWindow):
         self.prog_frame.setValue(0)
 
         if self.mode == "online":
+            logger.info("Starting online (Colab) generation")
             try:
                 self.poll_timer.stop()
                 try:
@@ -834,11 +939,11 @@ class NotyCaptionWindow(QMainWindow):
                 success = handle_online(self, enhanced_audio if use_enhanced else self.audio_file,
                                         lang_code, task, wpl, fmt, base, out_path)
                 if not success:
-                    self.is_generating = False
-                    self.gen_btn.setEnabled(True)
-                    return
+                    logger.warning("Online generation failed or cancelled")
             except Exception as e:
+                logger.critical(f"Online mode failed: {e}", exc_info=True)
                 QMessageBox.critical(self, "Online Mode Failed", str(e))
+            finally:
                 self.is_generating = False
                 self.gen_btn.setEnabled(True)
         else:
@@ -847,6 +952,7 @@ class NotyCaptionWindow(QMainWindow):
                 model = self.load_whisper_model()
                 self.prog_main.setValue(20)
 
+                logger.info("Starting Whisper transcription...")
                 result = model.transcribe(
                     enhanced_audio if use_enhanced else self.audio_file,
                     language=lang_code,
@@ -854,6 +960,7 @@ class NotyCaptionWindow(QMainWindow):
                     word_timestamps=True
                 )
                 self.prog_main.setValue(70)
+                logger.info("Whisper transcription completed")
 
                 self.subtitles = []
                 self.display_lines = []
@@ -921,12 +1028,14 @@ class NotyCaptionWindow(QMainWindow):
                     ass.save(out_path)
 
                 self.prog_main.setValue(100)
+                logger.info(f"Captions saved to: {out_path}")
                 QMessageBox.information(self, "Success", f"Captions saved:\n{out_path}")
 
                 self.generated = True
                 self.edit_btn.setEnabled(True)
 
             except Exception as e:
+                logger.critical(f"Local generation failed: {e}", exc_info=True)
                 QMessageBox.critical(self, "Generation Failed", f"Error:\n{str(e)}")
 
             finally:
@@ -936,14 +1045,17 @@ class NotyCaptionWindow(QMainWindow):
         try:
             if use_enhanced and os.path.exists(enhanced_audio):
                 os.remove(enhanced_audio)
+                logger.debug("Removed enhanced vocals temp file")
             spleeter_out = os.path.join(temp_dir, base_name)
             if os.path.exists(spleeter_out):
                 shutil.rmtree(spleeter_out, ignore_errors=True)
-        except:
-            pass
+                logger.debug("Cleaned spleeter output folder")
+        except Exception as e:
+            logger.warning(f"Cleanup failed: {e}")
 
     def load_downloaded_subtitles(self, file_path):
         try:
+            logger.info(f"Loading downloaded subtitles: {file_path}")
             self.subtitles = []
             self.display_lines = []
             if file_path.endswith('.srt'):
@@ -970,7 +1082,9 @@ class NotyCaptionWindow(QMainWindow):
             self.caption_edit.setText(preview.strip())
             self.generated = True
             self.edit_btn.setEnabled(True)
+            logger.info("Downloaded subtitles loaded into preview")
         except Exception as e:
+            logger.error(f"Failed to load downloaded subtitles: {e}", exc_info=True)
             QMessageBox.warning(self, "Load Failed", f"Could not load subtitles for preview:\n{str(e)}")
 
     def toggle_edit(self):
@@ -981,15 +1095,18 @@ class NotyCaptionWindow(QMainWindow):
         self.edit_btn.setText("Save Edits" if self.edit_active else "Edit Captions")
         if not self.edit_active:
             self.apply_edit_changes()
+        logger.debug(f"Edit mode: {'ON' if self.edit_active else 'OFF'}")
 
     def apply_edit_changes(self):
         text = self.caption_edit.toPlainText().strip()
         lines = [l.strip() for l in text.split('\n') if l.strip()]
         if len(lines) != len(self.subtitles):
+            logger.warning("Edit line count mismatch - changes discarded")
             QMessageBox.warning(self, "Edit Mismatch", "Line count changed. Edits not applied.")
             return
         for i, new_text in enumerate(lines):
             self.subtitles[i]["text"] = new_text
+        logger.info("Caption edits applied")
         QMessageBox.information(self, "Edits Saved", "Changes applied.")
 
 
@@ -998,6 +1115,7 @@ if __name__ == "__main__":
 
     instance = SingleInstance()
     if instance.is_already_running():
+        logger.warning("Another instance of NotyCaption is already running")
         QMessageBox.warning(None, "Already Running", "NotyCaption is already open.")
         sys.exit(0)
 
@@ -1008,4 +1126,5 @@ if __name__ == "__main__":
     app.setStyle('Fusion')
     win = NotyCaptionWindow()
     win.show()
+    logger.info("Application main loop started")
     sys.exit(app.exec_())
