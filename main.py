@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
     QSizePolicy, QStyleFactory, QDesktopWidget, QGroupBox, QRadioButton,
 )
 from PyQt5.QtGui import QIcon, QColor, QTextCursor, QFont, QPalette
-from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal, QSharedMemory
+from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal
 from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from moviepy.editor import VideoFileClip, AudioFileClip
@@ -30,6 +30,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 import webbrowser
+import win32event
+import win32api
+import win32con
+import win32gui
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
@@ -45,15 +49,21 @@ def resource_path(relative_path):
 
 class SingleInstance:
     def __init__(self):
-        self.memory = QSharedMemory("NotyCaption_SingleInstance_Key_Unique")
-        if self.memory.attach():
-            self.running = True
-        else:
-            self.running = False
-            self.memory.create(1)
+        self.mutexname = "NotyCaption_SingleInstance_Mutex_Unique"
+        self.mutex = win32event.CreateMutex(None, False, self.mutexname)
+        self.lasterror = win32api.GetLastError()
 
-    def is_running(self):
-        return self.running
+    def already_running(self):
+        return (self.lasterror == win32con.ERROR_ALREADY_EXISTS)
+
+    def activate_window(self):
+        def enum_window_callback(hwnd, title):
+            if title == win32gui.GetWindowText(hwnd):
+                win32gui.SetForegroundWindow(hwnd)
+                return False
+            return True
+
+        win32gui.EnumWindows(enum_window_callback, "NotyCaption by NotY215")
 
 
 # ──────────────────────────────────────────────
@@ -917,8 +927,8 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     instance = SingleInstance()
-    if instance.is_running():
-        QMessageBox.warning(None, "Already Running", "NotyCaption is already running.")
+    if instance.already_running():
+        instance.activate_window()
         sys.exit(0)
 
     icon_path = resource_path('App.ico')

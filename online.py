@@ -288,6 +288,8 @@ def poll_for_output(self):
     except: pass
 
     self.poll_timer.stop()
+    self.is_generating = False
+    self.gen_btn.setEnabled(True)
 
     QMessageBox.information(
         self,
