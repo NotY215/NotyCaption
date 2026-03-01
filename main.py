@@ -12,6 +12,7 @@ import logging
 import traceback
 import datetime
 import socket
+import time
 from datetime import timedelta
 import whisper
 from cryptography.fernet import Fernet
@@ -29,7 +30,6 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from moviepy.editor import VideoFileClip, AudioFileClip
 import pysrt
 import pysubs2
-from spleeter.separator import Separator
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -50,10 +50,9 @@ def resource_path(relative_path):
 
 
 # ──────────────────────────────────────────────
-# LOGGING SETUP – Fixed to always write next to EXE
+# LOGGING SETUP – Always next to EXE
 # ──────────────────────────────────────────────
 def setup_logging():
-    # Always log next to the executable (works in both dev and frozen EXE)
     if getattr(sys, 'frozen', False):
         base_dir = os.path.dirname(sys.executable)
     else:
@@ -72,7 +71,7 @@ def setup_logging():
             logging.FileHandler(log_file, encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
         ],
-        force=True  # Ensure config is applied even if logging was initialized before
+        force=True
     )
     logging.info("=== NotyCaption started ===")
     logging.info(f"Python version: {sys.version}")
@@ -476,7 +475,6 @@ class NotyCaptionWindow(QMainWindow):
         self.poll_output_name = None
         self.poll_local_out = None
         self.is_generating = False
-        self.spleeter_instance = None  # Lazy load Spleeter once
 
         if os.path.exists("token.json"):
             try:
@@ -632,17 +630,6 @@ class NotyCaptionWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to load Whisper model: {traceback.format_exc()}")
             raise
-
-    def get_spleeter(self):
-        if self.spleeter_instance is None:
-            try:
-                logger.info("Initializing Spleeter separator (lazy load)...")
-                self.spleeter_instance = Separator('spleeter:2stems')
-                logger.info("Spleeter initialized successfully")
-            except Exception as e:
-                logger.error(f"Spleeter initialization failed: {traceback.format_exc()}")
-                raise
-        return self.spleeter_instance
 
     def media_status(self, status):
         if status == QMediaPlayer.LoadedMedia:
@@ -802,9 +789,29 @@ class NotyCaptionWindow(QMainWindow):
 
         try:
             self.prog_main.setValue(10)
-            separator = self.get_spleeter()
-            separator.separate_to_file(self.audio_file, temp_dir, synchronous=True)
+            # Run Spleeter in subprocess to avoid main thread freeze
+            spleeter_script = os.path.join(os.path.dirname(__file__), "spleeter_runner.py")
+            if not os.path.exists(spleeter_script):
+                with open(spleeter_script, "w", encoding="utf-8") as f:
+                    f.write("""
+import sys
+from spleeter.separator import Separator
+audio_file = sys.argv[1]
+output_dir = sys.argv[2]
+separator = Separator('spleeter:2stems')
+separator.separate_to_file(audio_file, output_dir, synchronous=True)
+print("Spleeter completed")
+                    """)
+            cmd = [sys.executable, spleeter_script, self.audio_file, temp_dir]
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            stdout, stderr = process.communicate(timeout=300)  # 5 min timeout
             self.prog_main.setValue(60)
+
+            if process.returncode != 0:
+                logger.error(f"Spleeter subprocess failed: {stderr}")
+                raise RuntimeError(f"Spleeter error: {stderr}")
+
+            logger.info(f"Spleeter stdout: {stdout}")
 
             base_name = os.path.splitext(os.path.basename(self.audio_file))[0]
             vocals_path = os.path.join(temp_dir, base_name, 'vocals.wav')
@@ -821,6 +828,11 @@ class NotyCaptionWindow(QMainWindow):
             logger.info(f"Vocals-only file created: {final_path}")
             QMessageBox.information(self, "Audio Enhanced", f"Vocals-only file created:\n{final_path}")
 
+        except subprocess.TimeoutExpired:
+            process.kill()
+            self.prog_main.setValue(0)
+            logger.error("Spleeter subprocess timed out")
+            QMessageBox.warning(self, "Enhance Failed", "Audio enhancement timed out.")
         except Exception as e:
             self.prog_main.setValue(0)
             logger.error(f"Audio enhancement failed: {traceback.format_exc()}")
@@ -924,23 +936,81 @@ class NotyCaptionWindow(QMainWindow):
         try:
             logger.info("Attempting vocal separation with Spleeter...")
             self.prog_main.setValue(5)
-            separator = self.get_spleeter()
-            separator.separate_to_file(self.audio_file, temp_dir, synchronous=True)
-            self.prog_main.setValue(40)
+            # Use subprocess for Spleeter to avoid freezing main app
+            spleeter_script = os.path.join(os.path.dirname(__file__), "spleeter_runner.py")
+            if not os.path.exists(spleeter_script):
+                with open(spleeter_script, "w", encoding="utf-8") as f:
+                    f.write("""
+import sys
+from spleeter.separator import Separator
+audio_file = sys.argv[1]
+output_dir = sys.argv[2]
+separator = Separator('spleeter:2stems')
+separator.separate_to_file(audio_file, output_dir, synchronous=True)
+print("Spleeter completed successfully")
+                    """)
+            cmd = [sys.executable, spleeter_script, self.audio_file, temp_dir]
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+            stdout_lines = []
+            stderr_lines = []
+            while process.poll() is None:
+                line = process.stdout.readline()
+                if line:
+                    stdout_lines.append(line.strip())
+                    logger.info(f"Spleeter stdout: {line.strip()}")
+                err_line = process.stderr.readline()
+                if err_line:
+                    stderr_lines.append(err_line.strip())
+                    logger.warning(f"Spleeter stderr: {err_line.strip()}")
+                time.sleep(0.1)
+                self.prog_main.setValue(min(50, self.prog_main.value() + 2))
+
+            stdout, stderr = process.communicate(timeout=30)
+            stdout_lines.append(stdout.strip())
+            stderr_lines.append(stderr.strip())
+
+            self.prog_main.setValue(60)
+
+            if process.returncode != 0:
+                logger.error(f"Spleeter subprocess failed (code {process.returncode}): {stderr}")
+                raise RuntimeError(f"Spleeter error: {stderr}")
+
+            logger.info("Spleeter subprocess completed")
 
             base_name = os.path.splitext(os.path.basename(self.audio_file))[0]
             vocals_path = os.path.join(temp_dir, base_name, 'vocals.wav')
-            if os.path.exists(vocals_path):
-                shutil.move(vocals_path, enhanced_audio)
-                use_enhanced = True
-                self.prog_main.setValue(60)
-                logger.info("Using enhanced vocals for transcription")
-            else:
-                logger.warning("Spleeter did not produce vocals.wav → using original")
+
+            if not os.path.exists(vocals_path):
+                raise FileNotFoundError("vocals.wav not found after separation")
+
+            base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
+            final_name = f"{base}_vocals_only.wav"
+            final_path = os.path.join(self.output_folder, final_name)
+
+            shutil.move(vocals_path, final_path)
+            self.prog_main.setValue(80)
+            logger.info(f"Vocals-only file created: {final_path}")
+            use_enhanced = True
+
+        except subprocess.TimeoutExpired:
+            process.kill()
+            self.prog_main.setValue(0)
+            logger.error("Spleeter subprocess timed out")
+            QMessageBox.warning(self, "Enhance Failed", "Audio enhancement timed out.")
+            use_enhanced = False
         except Exception as e:
-            logger.warning(f"Spleeter failed or skipped: {e} → falling back to original audio")
-            enhanced_audio = self.audio_file
-            self.prog_main.setValue(40)
+            self.prog_main.setValue(0)
+            logger.error(f"Spleeter failed: {traceback.format_exc()}")
+            use_enhanced = False
+
+        finally:
+            try:
+                spleeter_out = os.path.join(temp_dir, base_name)
+                if os.path.exists(spleeter_out):
+                    shutil.rmtree(spleeter_out, ignore_errors=True)
+                    logger.info("Cleaned spleeter temporary output")
+            except Exception as e:
+                logger.warning(f"Failed to clean spleeter temp: {e}")
 
         lang = self.lang_combo.currentText()
         lang_code = "ja" if "japanese" in lang.lower() else "en"
@@ -961,7 +1031,7 @@ class NotyCaptionWindow(QMainWindow):
                 self.gen_btn.setEnabled(True)
                 return
 
-        self.prog_main.setValue(65)
+        self.prog_main.setValue(85)
         self.prog_frame.setValue(0)
 
         if self.mode == "online":
@@ -987,9 +1057,9 @@ class NotyCaptionWindow(QMainWindow):
         else:
             logger.info("Starting LOCAL Whisper generation")
             try:
-                self.prog_main.setValue(70)
+                self.prog_main.setValue(90)
                 model = self.load_whisper_model()
-                self.prog_main.setValue(75)
+                self.prog_main.setValue(92)
 
                 logger.info("Starting transcription...")
                 result = model.transcribe(
@@ -998,7 +1068,7 @@ class NotyCaptionWindow(QMainWindow):
                     task=task,
                     word_timestamps=True
                 )
-                self.prog_main.setValue(90)
+                self.prog_main.setValue(98)
                 logger.info("Transcription finished")
 
                 self.subtitles = []
@@ -1039,7 +1109,7 @@ class NotyCaptionWindow(QMainWindow):
                         self.display_lines.append(line)
                         idx += 1
 
-                self.prog_main.setValue(95)
+                self.prog_main.setValue(99)
 
                 preview = "\n".join(self.display_lines)
                 self.caption_edit.setText(preview.strip())
