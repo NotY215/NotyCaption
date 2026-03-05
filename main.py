@@ -1477,7 +1477,7 @@ class NotyCaptionWindow(QMainWindow):
                 logger.info("Extracting audio from video...")
                 clip = VideoFileClip(path)
                 if clip.audio is not None:
-                    clip.audio.write_audiofile(new_temp, codec='pcm_s16le', logger=None, verbose=False, logger=None)
+                    clip.audio.write_audiofile(new_temp, codec='pcm_s16le', logger=None, verbose=False)
                     self.audio_file = new_temp
                     success = True
                 clip.close()
@@ -1488,7 +1488,7 @@ class NotyCaptionWindow(QMainWindow):
             try:
                 logger.info("Converting audio file to WAV...")
                 audio_clip = AudioFileClip(path)
-                audio_clip.write_audiofile(new_temp, codec='pcm_s16le', logger=None, verbose=False, logger=None)
+                audio_clip.write_audiofile(new_temp, codec='pcm_s16le', logger=None, verbose=False)
                 self.audio_file = new_temp
                 audio_clip.close()
                 success = True
