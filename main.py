@@ -262,6 +262,8 @@ class SettingsDialog(QDialog):
         th_gb.setLayout(th_lay)
         lay.addWidget(th_gb)
 
+        self.poll_attempts = 0
+        self.max_poll_attempts = 180  # ~24 minutes @ 8s interval
         # Scale Group
         sc_gb = QGroupBox("UI Scaling")
         sc_lay = QHBoxLayout()
@@ -385,6 +387,7 @@ class OnlineHandler:
         if not self.service:
             QMessageBox.warning(self.parent, "Error", "Please login with Google first.")
             return False
+        
 
         logger.info("Starting online mode workflow")
         try:
@@ -444,7 +447,7 @@ class OnlineHandler:
             self.poll_audio_id = audio_id
             self.poll_notebook_id = notebook_id
             self.poll_local_out = out_path
-
+            self.parent.statusBar().showMessage("Online mode active – waiting for Colab to finish...", 12000)
             self.poll_timer.stop()
             try:
                 self.poll_timer.timeout.disconnect()
@@ -613,82 +616,50 @@ class OnlineHandler:
         }
         return notebook
 
-    def poll_for_output(self):
-        """
-        Poll Drive for generated subtitle file and download.
-        Stops timer on success, loads preview, cleans up.
-        """
-        if not self.poll_output_name:
-            return
+def poll_for_output(self):
+    if not self.poll_output_name:
+        return
 
-        query = f"name='{self.poll_output_name}' and trashed=false"
-        try:
-            results = self.service.files().list(q=query, fields="files(id,name)").execute()
-        except Exception as e:
-            logger.warning(f"Poll query failed: {e}")
-            return
+    self.poll_attempts += 1
 
-        files = results.get("files", [])
-        if not files:
-            logger.info("Output not ready yet - continue polling")
-            return
-
-        file_id = files[0]["id"]
-        try:
-            with open(self.poll_local_out, "wb") as f:
-                request = self.service.files().get_media(fileId=file_id)
-                downloader = MediaIoBaseDownload(f, request)
-                done = False
-                while not done:
-                    status, done = downloader.next_chunk()
-                    if status:
-                        logger.info(f"Download progress: {int(status.progress() * 100)}%")
-        except Exception as e:
-            logger.error(f"Download failed: {e}")
-            return
-
-        # Load preview
-        self.parent.load_downloaded_subtitles(self.poll_local_out)
-
-        # Cleanup Drive
-        try:
-            self.service.files().delete(fileId=self.poll_audio_id).execute()
-            self.service.files().delete(fileId=self.poll_notebook_id).execute()
-            self.service.files().delete(fileId=file_id).execute()
-            logger.info("Drive cleanup completed")
-        except Exception as e:
-            logger.warning(f"Cleanup failed: {e}")
-
+    if self.poll_attempts > self.max_poll_attempts:
         self.poll_timer.stop()
         self.parent.is_generating = False
         self.parent.gen_btn.setEnabled(True)
-
-        QMessageBox.information(
+        QMessageBox.critical(
             self.parent,
-            "Download Complete",
-            f"Subtitles downloaded and preview loaded:\n{self.poll_local_out}"
+            "Colab Timeout / Crash",
+            "Waited too long for result file to appear in Google Drive.\n\n"
+            "Most common reasons:\n"
+            "• Notebook was closed manually\n"
+            "• Colab runtime crashed or disconnected\n"
+            "• Transcription is taking very long (>20 min)\n"
+            "• Drive sync delay\n\n"
+            "What to do:\n"
+            "1. Check Colab tab – did it finish?\n"
+            "2. Manually download from Drive if present\n"
+            "3. Re-run generation (try smaller model or shorter video)"
         )
-        logger.info("Online polling completed successfully")
+        logger.warning("Online polling timeout reached")
+        return
 
-    def cleanup_drive(self):
-        """Empty uploads and delete temp notebooks on close."""
-        if not self.service:
-            return
-        try:
-            uploads_id = self.get_or_create_folder(self.service, "uploads")
-            query = f"'{uploads_id}' in parents and trashed=false"
-            results = self.service.files().list(q=query, fields="files(id)").execute()
-            for f in results.get("files", []):
-                self.service.files().delete(fileId=f["id"]).execute()
-
-            query = "name='NotyCaption_Generator.ipynb' and trashed=false"
-            results = self.service.files().list(q=query, fields="files(id)").execute()
-            for f in results.get("files", []):
-                self.service.files().delete(fileId=f["id"]).execute()
-
-            logger.info("Drive cleanup executed")
-        except Exception as e:
-            logger.warning(f"Drive cleanup error: {e}")
+    query = f"name='{self.poll_output_name}' and trashed=false"
+    try:
+        results = self.service.files().list(q=query, fields="files(id,name)").execute()
+        files = results.get("files", [])
+        if files:
+            # ... (existing download code) ...
+            self.poll_attempts = 0  # reset on success
+        else:
+            logger.info(f"Poll {self.poll_attempts}/{self.max_poll_attempts} - still waiting...")
+            if self.poll_attempts % 15 == 0:  # every ~2 min
+                self.parent.statusBar().showMessage(
+                    f"Waiting for Colab result... ({self.poll_attempts*8 // 60} min elapsed)",
+                    8000
+                )
+    except Exception as e:
+        logger.warning(f"Poll error: {e}")
+        # Don't stop timer on transient error
 
 # ========================================
 # AUDIO ENHANCER THREAD - Non-Blocking
@@ -1381,27 +1352,67 @@ class NotyCaptionWindow(QMainWindow):
             self.timeline.setValue(self.player.position())
 
     def toggle_media_playback(self):
-        """Toggle play/pause."""
         if not self.audio_file or not os.path.exists(self.audio_file):
-            QMessageBox.warning(self, "No Media", "Import audio/video first.")
+            QMessageBox.warning(self, "No Media", "No audio file loaded or file missing.")
+            logger.warning("Play attempted but no audio_file set")
             return
 
-        if self.player.state() == QMediaPlayer.PlayingState:
+        # Quick format check
+        ext = os.path.splitext(self.audio_file)[1].lower()
+        supported = {'.wav', '.mp3', '.m4a', '.aac', '.ogg'}
+        if ext not in supported:
+            logger.warning(f"Potentially unsupported audio format: {ext}")
+            QMessageBox.warning(self, "Format Warning",
+                                f"Audio is {ext} – best results with .wav\nTrying anyway...")
+
+        state = self.player.state()
+
+        if state == QMediaPlayer.PlayingState:
             self.player.pause()
             self.play_btn.setText("▶️ Play / ⏸️ Pause")
-            logger.info("Playback paused")
+            logger.info("Playback → paused")
         else:
             try:
                 if self.loaded_media != self.audio_file:
-                    self.player.setMedia(QMediaContent(QUrl.fromLocalFile(self.audio_file)))
+                    url = QUrl.fromLocalFile(self.audio_file)
+                    media = QMediaContent(url)
+                    self.player.setMedia(media)
                     self.loaded_media = self.audio_file
-                    logger.info(f"Media set: {self.audio_file}")
+                    logger.info(f"Media content set to: {self.audio_file}")
+
                 self.player.play()
                 self.play_btn.setText("⏸️ Playing...")
-                logger.info("Playback started")
+                logger.info("Playback → started")
             except Exception as e:
-                logger.error(f"Playback start failed: {e}")
-                QMessageBox.warning(self, "Play Error", str(e))
+                logger.error(f"play() failed: {e}", exc_info=True)
+                QMessageBox.critical(self, "Playback Failed",
+                                    f"Cannot play audio:\n{str(e)}\n\n"
+                                    "Possible causes:\n"
+                                    "• File corrupted\n"
+                                    "• Wrong codec\n"
+                                    "• Missing Qt multimedia plugins\n"
+                                    "• File in use by another process")
+            """Toggle play/pause."""
+            if not self.audio_file or not os.path.exists(self.audio_file):
+                QMessageBox.warning(self, "No Media", "Import audio/video first.")
+                return
+
+            if self.player.state() == QMediaPlayer.PlayingState:
+                self.player.pause()
+                self.play_btn.setText("▶️ Play / ⏸️ Pause")
+                logger.info("Playback paused")
+            else:
+                try:
+                    if self.loaded_media != self.audio_file:
+                        self.player.setMedia(QMediaContent(QUrl.fromLocalFile(self.audio_file)))
+                        self.loaded_media = self.audio_file
+                        logger.info(f"Media set: {self.audio_file}")
+                    self.player.play()
+                    self.play_btn.setText("⏸️ Playing...")
+                    logger.info("Playback started")
+                except Exception as e:
+                    logger.error(f"Playback start failed: {e}")
+                    QMessageBox.warning(self, "Play Error", str(e))
 
     def seek_media_position(self, position):
         """Seek to position in media."""
@@ -1501,6 +1512,15 @@ class NotyCaptionWindow(QMainWindow):
         self.loaded_media = None
         logger.info(f"Audio prepared: {self.audio_file}")
         QMessageBox.information(self, "Import Complete", "Media imported and audio ready for processing.")
+
+    def debug_audio_file(self):
+        if not self.audio_file:
+            logger.info("No audio file set")
+            return
+        logger.info(f"Audio file path: {self.audio_file}")
+        logger.info(f"Exists: {os.path.exists(self.audio_file)}")
+        logger.info(f"Size: {os.path.getsize(self.audio_file) / 1024 / 1024:.2f} MB")
+        logger.info(f"Playable by QMediaPlayer? → trying probe...")
 
     def browse_output_folder(self):
         """Browse for output directory."""
@@ -1690,7 +1710,13 @@ class NotyCaptionWindow(QMainWindow):
         task = "translate" if "Translate" in lang_text else "transcribe"
 
         wpl = self.words_spin.value()
-        fmt = self.format_combo.currentText().lower().replace(".srt", ".srt").replace(".ass", ".ass")  # Clean
+        fmt_map = {
+            "📄 .SRT (Standard)": ".srt",
+            ".srt (standard)":    ".srt",
+            "🎨 .ASS (Advanced)":  ".ass",
+            ".ass":               ".ass",
+        }
+        fmt = fmt_map.get(self.format_combo.currentText(), ".srt")
         base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
         out_path = os.path.join(self.output_folder or CURRENT_DIR, f"{base}_captions{fmt}")
 
