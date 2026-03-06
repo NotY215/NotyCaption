@@ -828,7 +828,7 @@ class AudioEnhancerThread(QThread):
             logger.info("Enhancer thread finished")
 
 # ========================================
-# CUSTOM DOWNLOAD HANDLER FOR WHISPER - FIXED VERSION WITH large-v1
+# CUSTOM DOWNLOAD HANDLER FOR WHISPER - FIXED VERSION WITH PROPER ATTRIBUTES
 # ========================================
 class CancellableWhisperDownloader:
     """Custom download handler that intercepts Whisper's download process"""
@@ -837,6 +837,8 @@ class CancellableWhisperDownloader:
         self._canceled = False
         self._progress_callback = None
         self._current_download = None
+        self._downloaded = 0  # Add this attribute
+        self._total_size = 0   # Add this attribute
         
     def cancel(self):
         """Cancel the download immediately"""
@@ -866,11 +868,11 @@ class CancellableWhisperDownloader:
                     raise Exception("DOWNLOAD_CANCELED_BY_USER")
                 
                 # Get file size for progress tracking
-                file_size = int(response.headers.get('Content-Length', 0))
+                self._total_size = int(response.headers.get('Content-Length', 0))
                 
                 # Download with chunk-by-chunk cancellation
                 with open(dst + '.tmp', 'wb') as out_file:
-                    downloaded = 0
+                    self._downloaded = 0
                     chunk_size = 8192  # 8KB chunks
                     
                     while True:
@@ -887,11 +889,11 @@ class CancellableWhisperDownloader:
                             break
                         
                         out_file.write(chunk)
-                        downloaded += len(chunk)
+                        self._downloaded += len(chunk)
                         
                         # Report progress
-                        if self._progress_callback and file_size > 0:
-                            progress = int((downloaded / file_size) * 100)
+                        if self._progress_callback and self._total_size > 0:
+                            progress = int((self._downloaded / self._total_size) * 100)
                             if progress < 100:
                                 self._progress_callback(progress)
                 
@@ -930,6 +932,8 @@ class CancellableWhisperDownloader:
         """
         self._canceled = False
         self._progress_callback = progress_callback
+        self._downloaded = 0
+        self._total_size = 0
         
         try:
             import torch.hub
@@ -1029,7 +1033,7 @@ class ModelDownloadThread(QThread):
             self.progress.emit(5)
             logger.info("Starting model download process")
             
-            # Check if model already exists (check for both large-v1 and large.pt)
+            # Check if model already exists (check for both large-v1.pt and large.pt)
             model_path = os.path.join(self.model_dir, "large-v1.pt")
             if not os.path.exists(model_path):
                 model_path = os.path.join(self.model_dir, "large.pt")
@@ -2063,15 +2067,30 @@ class NotyCaptionWindow(QMainWindow):
         """Update download progress display."""
         self.download_prog.setValue(value)
         
-        # Format the progress info nicely
-        if hasattr(self.model_download_thread, '_downloader'):
-            downloaded_mb = self.model_download_thread._downloader._downloaded / (1024 * 1024)
-            total_mb = self.model_download_thread._downloader._total_size / (1024 * 1024)
-            if total_mb > 0:
-                self.prog_info.setText(f"Downloading... {downloaded_mb:.1f} MB / {total_mb:.1f} MB ({value}%)")
+        # Format the progress info nicely with error handling
+        try:
+            if (hasattr(self, 'model_download_thread') and 
+                self.model_download_thread and 
+                hasattr(self.model_download_thread, '_downloader')):
+                
+                downloader = self.model_download_thread._downloader
+                
+                # Check if attributes exist before using them
+                if hasattr(downloader, '_downloaded') and hasattr(downloader, '_total_size'):
+                    downloaded_mb = downloader._downloaded / (1024 * 1024)
+                    total_mb = downloader._total_size / (1024 * 1024)
+                    
+                    if total_mb > 0:
+                        self.prog_info.setText(f"Downloading... {downloaded_mb:.1f} MB / {total_mb:.1f} MB ({value}%)")
+                    else:
+                        self.prog_info.setText(f"Downloading... ({value}%)")
+                else:
+                    self.prog_info.setText(f"Downloading... ({value}%)")
             else:
                 self.prog_info.setText(f"Downloading... ({value}%)")
-        else:
+        except Exception as e:
+            # Fallback to simple progress display if any error occurs
+            logger.debug(f"Progress display error: {e}")
             self.prog_info.setText(f"Downloading... ({value}%)")
         
         self.download_prog.setFormat(f"{value}%")
