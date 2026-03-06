@@ -11,6 +11,8 @@ import time
 import tempfile
 import base64
 import threading
+import requests
+from tqdm import tqdm
 from datetime import timedelta
 from io import BytesIO
 from cryptography.fernet import Fernet
@@ -826,12 +828,95 @@ class AudioEnhancerThread(QThread):
             logger.info("Enhancer thread finished")
 
 # ========================================
+# CUSTOM DOWNLOADER WITH CANCELLATION SUPPORT
+# ========================================
+class CancellableWhisperDownloader:
+    """Custom downloader for Whisper models that supports cancellation"""
+    
+    def __init__(self):
+        self._canceled = False
+        self._session = requests.Session()
+        
+    def cancel(self):
+        """Cancel the download"""
+        self._canceled = True
+        logger.info("Download cancellation requested")
+        
+    def download(self, url, destination, progress_callback=None):
+        """
+        Download a file with cancellation support and progress reporting
+        
+        Args:
+            url: URL to download from
+            destination: Local file path to save to
+            progress_callback: Function to call with progress percentage
+        """
+        self._canceled = False
+        temp_dest = destination + ".partial"
+        
+        try:
+            # Check if partial download exists and get its size
+            resume_size = 0
+            if os.path.exists(temp_dest):
+                resume_size = os.path.getsize(temp_dest)
+                
+            # Set up headers for resume
+            headers = {'Range': f'bytes={resume_size}-'} if resume_size > 0 else {}
+            
+            # Start download with stream=True for progress reporting
+            response = self._session.get(url, headers=headers, stream=True, timeout=30)
+            response.raise_for_status()
+            
+            # Get total size
+            total_size = int(response.headers.get('content-length', 0)) + resume_size
+            
+            # Open file in append mode if resuming, else write mode
+            mode = 'ab' if resume_size > 0 else 'wb'
+            
+            with open(temp_dest, mode) as f:
+                downloaded = resume_size
+                
+                for chunk in response.iter_content(chunk_size=8192):
+                    # Check for cancellation
+                    if self._canceled:
+                        logger.info("Download canceled during chunk transfer")
+                        # Don't delete partial file here - let the caller handle cleanup
+                        return False
+                    
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        # Report progress
+                        if total_size > 0 and progress_callback:
+                            progress = int((downloaded / total_size) * 100)
+                            progress_callback(progress)
+                            
+                            # Also update logger occasionally
+                            if progress % 10 == 0:
+                                logger.info(f"Download progress: {progress}%")
+            
+            # If we get here without cancellation, move temp file to final destination
+            if not self._canceled:
+                os.rename(temp_dest, destination)
+                logger.info(f"Download completed: {destination}")
+                return True
+            else:
+                return False
+                
+        except Exception as e:
+            logger.error(f"Download error: {e}")
+            raise
+        finally:
+            self._session.close()
+
+# ========================================
 # MODEL DOWNLOAD THREAD - Cancelable with Confirmation
 # ========================================
 class ModelDownloadThread(QThread):
     """
-    Thread for downloading Whisper large-v3 model.
-    Supports cancellation and progress simulation.
+    Thread for downloading Whisper large-v3 model with proper cancellation.
+    Uses custom downloader that actually stops when canceled.
     """
     progress = pyqtSignal(int)
     finished = pyqtSignal(bool, str)  # success, message
@@ -841,72 +926,69 @@ class ModelDownloadThread(QThread):
         super().__init__(parent)
         self.model_dir = model_dir
         self._is_canceled = False
-        self._download_completed = False
-        self._temp_file = None
+        self._downloader = CancellableWhisperDownloader()
         logger.info(f"ModelDownloadThread initialized for {model_dir}")
 
     def cancel(self):
         """
-        Set cancellation flag and clean up partial download.
+        Set cancellation flag and stop the download.
         """
         self._is_canceled = True
-        logger.info("Model download cancellation requested")
-        
-        # Clean up partial download if exists
-        model_path = os.path.join(self.model_dir, "large-v3.pt")
-        partial_path = model_path + ".partial"
-        if os.path.exists(partial_path):
-            try:
-                os.remove(partial_path)
-                logger.info(f"Removed partial download: {partial_path}")
-            except Exception as e:
-                logger.warning(f"Failed to remove partial download: {e}")
+        self._downloader.cancel()
+        logger.info("Model download cancellation requested - stopping download")
 
     @pyqtSlot()
     def run(self):
         """
-        Download and load model with progress simulation.
-        Check for cancellation between steps.
+        Download the model with proper progress tracking.
         """
         try:
             self.progress.emit(5)
             logger.info("Starting model download process")
-            import whisper
-
-            # Simulate download progress with frequent cancel checks
-            for i in range(5, 95, 2):
-                if self._is_canceled:
-                    logger.info("Cancellation detected during download")
-                    self.canceled.emit()
-                    return
-                time.sleep(0.1)  # Short delay for responsiveness
-                self.progress.emit(i)
-                logger.debug(f"Progress: {i}%")
-
-            # Check cancellation before actual model load
+            
+            # Model URL for large-v3
+            model_url = "https://openaipublic.azureedge.net/main/whisper/models/e5b1a55b89c1367dacf97e3e19bfd829a015e2a08c6b7a6b6f3c6c2b8c5a5e5b/large-v3.pt"
+            
+            # Destination path
+            model_path = os.path.join(self.model_dir, "large-v3.pt")
+            
+            # Check if model already exists
+            if os.path.exists(model_path):
+                logger.info("Model already exists, skipping download")
+                self.progress.emit(100)
+                self.finished.emit(True, "Model already exists!")
+                return
+            
+            # Download with progress callback
+            success = self._downloader.download(
+                model_url, 
+                model_path,
+                progress_callback=lambda p: self.progress.emit(p)
+            )
+            
             if self._is_canceled:
-                logger.info("Cancellation detected before model load")
+                logger.info("Download canceled by user")
+                # Clean up partial download
+                partial_path = model_path + ".partial"
+                if os.path.exists(partial_path):
+                    try:
+                        os.remove(partial_path)
+                        logger.info(f"Removed partial download: {partial_path}")
+                    except Exception as e:
+                        logger.warning(f"Failed to remove partial download: {e}")
                 self.canceled.emit()
                 return
-
-            logger.info("Download simulation complete, loading model")
-            # Load model - this will download if needed
-            model = whisper.load_model("large-v3", download_root=self.model_dir)
             
-            # Check cancellation after model load
-            if self._is_canceled:
-                logger.info("Cancellation detected after model load")
-                self.canceled.emit()
-                return
-
-            logger.info("Model loaded successfully")
-            self.progress.emit(100)
-            self._download_completed = True
-            self.finished.emit(True, "Model large-v3 downloaded successfully!")
-            
+            if success:
+                logger.info("Model downloaded successfully")
+                self.progress.emit(100)
+                self.finished.emit(True, "Model large-v3 downloaded successfully!")
+            else:
+                self.finished.emit(False, "Download failed - unknown error")
+                
         except Exception as dl_err:
             if not self._is_canceled:  # Only report error if not canceled
-                error_msg = f"Download/Load error: {str(dl_err)}"
+                error_msg = f"Download error: {str(dl_err)}"
                 logger.error(f"Model thread error: {traceback.format_exc()}")
                 self.finished.emit(False, error_msg)
 
@@ -1852,7 +1934,8 @@ class NotyCaptionWindow(QMainWindow):
             self.cancel_download_btn.setEnabled(False)
             self.download_prog.setFormat("Canceling...")
             self.prog_info.setText("Canceling download and cleaning up...")
-            self.model_download_thread.cancel()
+            if self.model_download_thread:
+                self.model_download_thread.cancel()
             logger.info("User confirmed download cancellation")
 
     def open_model_download_dialog(self):
@@ -1939,7 +2022,7 @@ class NotyCaptionWindow(QMainWindow):
         # Update progress info
         self.download_prog.setValue(0)
         self.download_prog.setFormat("%p%")
-        self.prog_info.setText("Downloading model... (0%)")
+        self.prog_info.setText("Starting download...")
         self.cancel_download_btn.setEnabled(True)
 
         # Disable other buttons to prevent interaction
@@ -1978,6 +2061,7 @@ class NotyCaptionWindow(QMainWindow):
         self.enhance_btn.setEnabled(bool(self.audio_file))
         self.play_btn.setEnabled(bool(self.audio_file))
         self.edit_btn.setEnabled(self.generated)
+        self.cancel_download_btn.setEnabled(False)
         logger.info("UI buttons re-enabled after download")
         
         if success:
