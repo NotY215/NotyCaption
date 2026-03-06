@@ -1,15 +1,3 @@
-# NotyCaption.py
-# App name: NotyCaption
-# Developer: NotY215
-# All rights reserved by NotY215
-# Version: 2.4 - Fixed Logger Initialization Order, Moved Logging Setup to Top (2026)
-# Features: Audio/Video import, Spleeter enhancement (GPU/CPU auto), Google Colab integration (GPU runtime forced),
-#           Subtitle export (SRT/ASS), Real-time playback with sync highlighting, Editable captions,
-#           Settings persistence with encryption, Cancelable model download with overlay & progress,
-#           Fixed oauth2client/google-auth cache conflict, Model download dialog now opens reliably,
-#           Enhanced overlay for full window coverage, Real-time progress updates, Button states preserved,
-#           Resize-aware overlay, Improved thread cancellation with UI feedback, Logger setup before encryption.
-
 import sys
 import os
 import json
@@ -838,7 +826,7 @@ class AudioEnhancerThread(QThread):
             logger.info("Enhancer thread finished")
 
 # ========================================
-# MODEL DOWNLOAD THREAD - Cancelable
+# MODEL DOWNLOAD THREAD - Cancelable with Confirmation
 # ========================================
 class ModelDownloadThread(QThread):
     """
@@ -853,47 +841,74 @@ class ModelDownloadThread(QThread):
         super().__init__(parent)
         self.model_dir = model_dir
         self._is_canceled = False
+        self._download_completed = False
+        self._temp_file = None
         logger.info(f"ModelDownloadThread initialized for {model_dir}")
 
     def cancel(self):
         """
-        Set cancellation flag.
-        Checked during progress simulation.
+        Set cancellation flag and clean up partial download.
         """
         self._is_canceled = True
         logger.info("Model download cancellation requested")
+        
+        # Clean up partial download if exists
+        model_path = os.path.join(self.model_dir, "large-v3.pt")
+        partial_path = model_path + ".partial"
+        if os.path.exists(partial_path):
+            try:
+                os.remove(partial_path)
+                logger.info(f"Removed partial download: {partial_path}")
+            except Exception as e:
+                logger.warning(f"Failed to remove partial download: {e}")
 
     @pyqtSlot()
     def run(self):
         """
-        Simulate progress and load model.
+        Download and load model with progress simulation.
         Check for cancellation between steps.
         """
         try:
             self.progress.emit(5)
-            logger.info("Starting model download simulation")
+            logger.info("Starting model download process")
             import whisper
 
-            # Enhanced simulation with finer steps and immediate cancel check
-            for i in range(5, 101, 2):  # Finer steps for smoother progress
+            # Simulate download progress with frequent cancel checks
+            for i in range(5, 95, 2):
                 if self._is_canceled:
-                    logger.info("Cancellation detected during simulation")
+                    logger.info("Cancellation detected during download")
                     self.canceled.emit()
                     return
-                time.sleep(0.1)  # Shorter delay for responsiveness
+                time.sleep(0.1)  # Short delay for responsiveness
                 self.progress.emit(i)
                 logger.debug(f"Progress: {i}%")
 
-            logger.info("Simulation complete, starting actual model load")
+            # Check cancellation before actual model load
+            if self._is_canceled:
+                logger.info("Cancellation detected before model load")
+                self.canceled.emit()
+                return
+
+            logger.info("Download simulation complete, loading model")
             # Load model - this will download if needed
             model = whisper.load_model("large-v3", download_root=self.model_dir)
-            logger.info("Model loaded successfully (download if needed)")
+            
+            # Check cancellation after model load
+            if self._is_canceled:
+                logger.info("Cancellation detected after model load")
+                self.canceled.emit()
+                return
+
+            logger.info("Model loaded successfully")
             self.progress.emit(100)
+            self._download_completed = True
             self.finished.emit(True, "Model large-v3 downloaded successfully!")
+            
         except Exception as dl_err:
-            error_msg = f"Download/Load error: {str(dl_err)}"
-            logger.error(f"Model thread error: {traceback.format_exc()}")
-            self.finished.emit(False, error_msg)
+            if not self._is_canceled:  # Only report error if not canceled
+                error_msg = f"Download/Load error: {str(dl_err)}"
+                logger.error(f"Model thread error: {traceback.format_exc()}")
+                self.finished.emit(False, error_msg)
 
 # ========================================
 # MAIN APPLICATION WINDOW
@@ -926,58 +941,97 @@ class NotyCaptionWindow(QMainWindow):
         self.central_widget.setLayout(self.main_layout)
 
         # Enhanced Overlay for full window coverage and blocking
-        self.overlay = QFrame(self)  # Child of main window for full coverage
-        self.overlay.setStyleSheet("background: rgba(0,0,0,0.6);")  # Semi-transparent black
-        self.overlay.setGeometry(0, 0, self.width(), self.height())
-        self.overlay.raise_()  # Bring to top
-        self.overlay.hide()  # Initially hidden
+        self.overlay = QFrame(self.central_widget)  # Child of central widget
+        self.overlay.setStyleSheet("""
+            QFrame {
+                background: rgba(0,0,0,0.85);
+                border: none;
+            }
+        """)
+        self.overlay.setGeometry(0, 0, self.central_widget.width(), self.central_widget.height())
+        self.overlay.hide()
+
+        # Overlay layout with centered content
         self.overlay_layout = QVBoxLayout(self.overlay)
-        self.overlay_layout.addStretch()
+        self.overlay_layout.setAlignment(Qt.AlignCenter)
 
+        # Progress container with white background and rounded corners
         self.progress_container = QWidget()
+        self.progress_container.setStyleSheet("""
+            QWidget {
+                background: #2d2d30;
+                border-radius: 15px;
+                padding: 20px;
+                max-width: 500px;
+            }
+        """)
         prog_lay = QVBoxLayout(self.progress_container)
-        prog_lay.setAlignment(Qt.AlignCenter)
 
+        # Progress title
+        prog_title = QLabel("Downloading Whisper large-v3 Model")
+        prog_title.setStyleSheet("color: white; font-size: 18px; font-weight: bold; margin-bottom: 10px;")
+        prog_title.setAlignment(Qt.AlignCenter)
+        prog_lay.addWidget(prog_title)
+
+        # Progress info
+        self.prog_info = QLabel("Preparing download...")
+        self.prog_info.setStyleSheet("color: #cccccc; font-size: 12px; margin-bottom: 15px;")
+        self.prog_info.setAlignment(Qt.AlignCenter)
+        prog_lay.addWidget(self.prog_info)
+
+        # Progress bar
         self.download_prog = QProgressBar()
         self.download_prog.setMinimum(0)
         self.download_prog.setMaximum(100)
         self.download_prog.setStyleSheet("""
             QProgressBar {
-                background: #22252a;
-                border: 2px solid #3a3f44;
+                background: #3a3f44;
+                border: 2px solid #4a4f55;
                 border-radius: 10px;
                 text-align: center;
                 color: white;
                 font-weight: bold;
                 height: 35px;
-                width: 400px;
+                min-width: 400px;
             }
             QProgressBar::chunk {
-                background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #00c853,stop:1 #00b140);
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #00c853, stop:0.5 #00b140, stop:1 #009624);
                 border-radius: 8px;
             }
         """)
         prog_lay.addWidget(self.download_prog)
 
+        # Cancel button with confirmation
         self.cancel_download_btn = QPushButton("Cancel Download")
         self.cancel_download_btn.setStyleSheet("""
             QPushButton {
                 background: #d32f2f;
                 color: white;
-                border-radius: 12px;
-                font-size: 16px;
-                padding: 12px;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: bold;
+                padding: 12px 25px;
+                margin-top: 15px;
                 min-width: 200px;
             }
-            QPushButton:hover { background: #b71c1c; }
-            QPushButton:disabled { background: #666; color: #999; }
+            QPushButton:hover {
+                background: #b71c1c;
+            }
+            QPushButton:pressed {
+                background: #9a0000;
+            }
+            QPushButton:disabled {
+                background: #666666;
+                color: #999999;
+            }
         """)
-        self.cancel_download_btn.clicked.connect(self.cancel_model_download)
-        self.cancel_download_btn.setEnabled(False)  # Initially disabled
+        self.cancel_download_btn.clicked.connect(self.confirm_cancel_download)
+        self.cancel_download_btn.setEnabled(False)
         prog_lay.addWidget(self.cancel_download_btn, alignment=Qt.AlignCenter)
 
         self.overlay_layout.addWidget(self.progress_container)
-        self.overlay_layout.addStretch()
 
         self.top_layout = QHBoxLayout()
         self.main_layout.addLayout(self.top_layout)
@@ -1003,10 +1057,10 @@ class NotyCaptionWindow(QMainWindow):
     def resizeEvent(self, event):
         """
         Handle window resize to update overlay geometry for full coverage.
-        Ensures overlay always blocks the entire window.
+        Ensures overlay always blocks the entire central widget.
         """
         if self.overlay.isVisible():
-            self.overlay.setGeometry(0, 0, self.width(), self.height())
+            self.overlay.setGeometry(0, 0, self.central_widget.width(), self.central_widget.height())
             self.overlay.raise_()
         super().resizeEvent(event)
         logger.debug(f"Window resized to {self.width()}x{self.height()}")
@@ -1782,6 +1836,25 @@ class NotyCaptionWindow(QMainWindow):
         self.enhance_btn.setEnabled(True)
         self.enhancer_thread = None
 
+    def confirm_cancel_download(self):
+        """
+        Show confirmation dialog before canceling download.
+        """
+        reply = QMessageBox.question(
+            self,
+            "Confirm Cancel",
+            "Are you sure you want to cancel the download?\n\nThe partially downloaded file will be deleted permanently.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            self.cancel_download_btn.setEnabled(False)
+            self.download_prog.setFormat("Canceling...")
+            self.prog_info.setText("Canceling download and cleaning up...")
+            self.model_download_thread.cancel()
+            logger.info("User confirmed download cancellation")
+
     def open_model_download_dialog(self):
         """
         Open dialog for model download options, then start thread with overlay.
@@ -1859,14 +1932,17 @@ class NotyCaptionWindow(QMainWindow):
         self.update_download_button_visibility()
 
         # Show overlay with full coverage
-        self.overlay.setGeometry(0, 0, self.width(), self.height())
+        self.overlay.setGeometry(0, 0, self.central_widget.width(), self.central_widget.height())
         self.overlay.raise_()
         self.overlay.show()
+        
+        # Update progress info
         self.download_prog.setValue(0)
+        self.download_prog.setFormat("%p%")
+        self.prog_info.setText("Downloading model... (0%)")
         self.cancel_download_btn.setEnabled(True)
-        self.download_prog.setFormat("Downloading...")
 
-        # Disable other buttons to prevent interaction (overlay blocks, but ensure)
+        # Disable other buttons to prevent interaction
         self.gen_btn.setEnabled(False)
         self.import_btn.setEnabled(False)
         self.enhance_btn.setEnabled(False)
@@ -1875,23 +1951,20 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("UI buttons disabled during download")
 
         self.model_download_thread = ModelDownloadThread(path, self)
-        self.model_download_thread.progress.connect(self.download_prog.setValue)
+        self.model_download_thread.progress.connect(self.on_download_progress)
         self.model_download_thread.finished.connect(self.on_model_download_finished)
         self.model_download_thread.canceled.connect(self.on_model_download_canceled)
         self.model_download_thread.start()
 
         logger.info(f"Model download started to: {path}")
 
-    def cancel_model_download(self):
+    def on_download_progress(self, value):
         """
-        Cancel ongoing model download.
-        Updates UI immediately.
+        Update download progress display.
         """
-        if self.model_download_thread and self.model_download_thread.isRunning():
-            self.model_download_thread.cancel()
-            self.cancel_download_btn.setEnabled(False)
-            self.download_prog.setFormat("Canceling...")
-            logger.info("Model download cancel requested and processed")
+        self.download_prog.setValue(value)
+        self.prog_info.setText(f"Downloading model... ({value}%)")
+        self.download_prog.setFormat(f"{value}%")
 
     @pyqtSlot(bool, str)
     def on_model_download_finished(self, success, message):
@@ -1906,6 +1979,7 @@ class NotyCaptionWindow(QMainWindow):
         self.play_btn.setEnabled(bool(self.audio_file))
         self.edit_btn.setEnabled(self.generated)
         logger.info("UI buttons re-enabled after download")
+        
         if success:
             self.update_download_button_visibility()
             QMessageBox.information(self, "Success", message)
@@ -1927,8 +2001,14 @@ class NotyCaptionWindow(QMainWindow):
         self.enhance_btn.setEnabled(bool(self.audio_file))
         self.play_btn.setEnabled(bool(self.audio_file))
         self.edit_btn.setEnabled(self.generated)
+        self.cancel_download_btn.setEnabled(False)
         logger.info("UI buttons re-enabled after cancel")
-        QMessageBox.information(self, "Canceled", "Model download canceled.")
+        
+        QMessageBox.information(
+            self, 
+            "Download Canceled", 
+            "The model download has been canceled and the partial file has been deleted."
+        )
         self.model_download_thread = None
 
     def start_caption_generation(self):
