@@ -40,12 +40,11 @@ import whisper
 import numpy as np
 from spleeter.separator import Separator
 
-
 # Force disable tqdm globally in frozen mode from the beginning
 if getattr(sys, 'frozen', False):
     import tqdm
     tqdm.disable = True
-    
+
 # IMPORTANT: Suppress googleapiclient file_cache warning by disabling it
 os.environ["GOOGLEAPI_DISABLE_FILE_CACHE"] = "1"
 
