@@ -47,7 +47,7 @@
 ## 🚀 Quick Start – Windows Installer (Recommended)
 
 1. Go to → [Latest Release Page](https://github.com/NotY215/NotyCaption/releases/latest)
-2. Download **NotyCaption.exe** (~80–120 MB)
+2. Download **NotyCaption.exe** (~800 MB–1.20 GB)
 3. Run the installer (no installation needed – portable app)
 4. First launch → download **large-v1** model (~2.9 GB) when prompted
 5. Import video/audio → Generate captions → Export SRT/ASS
