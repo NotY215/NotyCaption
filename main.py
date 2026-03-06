@@ -126,23 +126,37 @@ def resource_path(relative_path):
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(CURRENT_DIR, "settings.notcapz")
 KEY_FILE = os.path.join(CURRENT_DIR, "key.notcapz")
+KEY_FILE_NAME = "key.notcapz"
 CLIENT_JSON = os.path.join(CURRENT_DIR, "client.json")
 CLIENT_ENCRYPTED = os.path.join(CURRENT_DIR, "client.notycapz")
 
 def load_or_create_key():
-    """
-    Load encryption key or generate a new one if not exists.
-    Ensures secure key management for settings and client secrets.
-    """
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        # EXE mode: load bundled key
+        base = sys._MEIPASS
+        key_path = os.path.join(base, KEY_FILE_NAME)
+        logger.info(f"EXE mode: loading bundled key from {key_path}")
+        if os.path.exists(key_path):
+            with open(key_path, "rb") as f:
+                key_data = f.read()
+            logger.info("Bundled key loaded successfully")
+            return key_data
+        else:
+            logger.error(f"Bundled key {KEY_FILE_NAME} not found in EXE")
+            raise FileNotFoundError(f"Encryption key missing in bundle: {KEY_FILE_NAME}")
+
+    # Dev mode: use local key
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, "rb") as f:
             key_data = f.read()
-            logger.info("Encryption key loaded from file")
-            return key_data
+        logger.info("Local dev key loaded")
+        return key_data
+
+    # Create new only in dev mode (never in EXE)
+    logger.info("No key found - generating new one (dev mode only)")
     key = Fernet.generate_key()
     with open(KEY_FILE, "wb") as f:
         f.write(key)
-    logger.info("New encryption key generated and saved")
     return key
 
 fernet = Fernet(load_or_create_key())
@@ -215,14 +229,10 @@ def load_settings():
         return defaults
 
 def load_client_secrets():
-    """
-    Load Google client secrets - prioritizes encrypted bundled file in EXE mode
-    """
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        # Running as EXE - look inside bundled temp folder
         base = sys._MEIPASS
         encrypted_path = os.path.join(base, "client.notycapz")
-        logger.info(f"EXE mode: checking bundled client.notycapz → {encrypted_path}")
+        logger.info(f"EXE mode: loading bundled client.notycapz → {encrypted_path}")
 
         if os.path.exists(encrypted_path):
             try:
@@ -230,22 +240,22 @@ def load_client_secrets():
                     encrypted_b64 = f.read().strip()
                 decrypted = decrypt_data(encrypted_b64)
                 if decrypted and "installed" in decrypted:
-                    logger.info("Successfully decrypted bundled client.notycapz")
+                    logger.info("Bundled client secrets decrypted OK")
                     return decrypted
                 else:
                     logger.warning("Decrypted data invalid or missing 'installed'")
             except Exception as e:
-                logger.error(f"Failed to decrypt bundled client.notycapz: {str(e)}")
+                logger.error(f"Decryption failed for bundled file: {str(e)}")
         else:
-            logger.warning("client.notycapz NOT found in EXE bundle")
+            logger.warning("client.notycapz not found in bundle")
     else:
-        # Dev mode - look for plain client.json
+        # Dev mode fallback
         if os.path.exists(CLIENT_JSON):
             logger.info("Dev mode: loading plain client.json")
             with open(CLIENT_JSON, "r", encoding='utf-8') as f:
                 return json.load(f)
 
-    logger.warning("No valid client secrets found → Online mode unavailable")
+    logger.warning("No valid client secrets found")
     return None
 
 # ========================================

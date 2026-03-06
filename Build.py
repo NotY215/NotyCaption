@@ -1,9 +1,6 @@
 # build.py
 """
-FINAL Build script for NotyCaption - March 2026
-- Encrypts client.json → client.notycapz using base64 (consistent with decrypt)
-- Builds single-file EXE named NotyCaption.exe
-- Bundles client.notycapz inside the EXE (accessible via _MEIPASS)
+FINAL Build script - bundles both encrypted secrets AND the fixed key
 """
 
 import os
@@ -15,27 +12,20 @@ import subprocess
 import datetime
 from cryptography.fernet import Fernet
 
-# ────────────────────────────────────────────────
 # CONFIG
-# ────────────────────────────────────────────────
-
-EXE_NAME        = "NotyCaption"             # Final EXE name
-MAIN_SCRIPT     = "main.py"                 # Your renamed app code
+EXE_NAME        = "NotyCaption"
+MAIN_SCRIPT     = "main.py"
 ICON_FILE       = "App.ico"
 CLIENT_JSON_SRC = "client.json"
 ENCRYPTED_FILE  = "client.notycapz"
+KEY_FILE_NAME   = "key.notcapz"   # Must match load_or_create_key()
 
-REQUIRED_FILES = [
-    MAIN_SCRIPT,
-    ICON_FILE,
-    CLIENT_JSON_SRC,
-]
+REQUIRED_FILES = [MAIN_SCRIPT, ICON_FILE, CLIENT_JSON_SRC]
 
 RELEASE_FOLDER = f"release_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 TEMP_FOLDERS = ["build", "dist", "__pycache__"]
 
-# PyInstaller command
 PYINSTALLER_CMD = [
     "pyinstaller",
     "--onefile",
@@ -46,11 +36,11 @@ PYINSTALLER_CMD = [
     f"--icon={ICON_FILE}",
     f"--name={EXE_NAME}",
 
-    # Bundle icon + encrypted secrets
+    # Bundle everything needed
     "--add-data", f"{ICON_FILE};.",
     "--add-data", f"{ENCRYPTED_FILE};.",
+    "--add-data", f"{KEY_FILE_NAME};.",   # ← Bundles the key too
 
-    # Collect important packages
     "--collect-all", "imageio",
     "--collect-all", "imageio_ffmpeg",
     "--collect-all", "moviepy",
@@ -72,26 +62,26 @@ PYINSTALLER_CMD = [
 ]
 
 # ────────────────────────────────────────────────
-# ENCRYPTION (using base64 - consistent with decrypt_data)
+# ENCRYPTION - using FIXED key name
 # ────────────────────────────────────────────────
-
-def generate_or_load_key(key_path="build-key.key"):
-    if os.path.exists(key_path):
-        with open(key_path, "rb") as f:
-            return f.read()
-    key = Fernet.generate_key()
-    with open(key_path, "wb") as f:
-        f.write(key)
-    print(f"[KEY] Created → {key_path}  (SAVE THIS!)")
-    return key
-
 
 def encrypt_client():
     if not os.path.isfile(CLIENT_JSON_SRC):
         print(f"[ERROR] Missing {CLIENT_JSON_SRC}")
         sys.exit(1)
 
-    key = generate_or_load_key()
+    # Use FIXED key file name
+    key_path = KEY_FILE_NAME
+    if os.path.exists(key_path):
+        print(f"[KEY] Using existing key: {key_path}")
+        with open(key_path, "rb") as f:
+            key = f.read()
+    else:
+        print(f"[KEY] Generating new fixed key → {key_path}")
+        key = Fernet.generate_key()
+        with open(key_path, "wb") as f:
+            f.write(key)
+
     fernet = Fernet(key)
 
     with open(CLIENT_JSON_SRC, "r", encoding="utf-8") as f:
@@ -99,22 +89,22 @@ def encrypt_client():
 
     json_bytes = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
     encrypted = fernet.encrypt(json_bytes)
-    encoded = base64.b64encode(encrypted).decode("utf-8")  # ← b64, not b85
+    encoded = base64.b64encode(encrypted).decode("utf-8")
 
     with open(ENCRYPTED_FILE, "w", encoding="utf-8") as f:
         f.write(encoded)
 
-    print(f"[OK] Encrypted → {ENCRYPTED_FILE}")
+    print(f"[OK] Encrypted → {ENCRYPTED_FILE} (using key: {key_path})")
 
 
 # ────────────────────────────────────────────────
-# BUILD STEPS
+# BUILD FLOW
 # ────────────────────────────────────────────────
 
 def check_files():
     missing = [f for f in REQUIRED_FILES if not os.path.isfile(f)]
     if missing:
-        print("Missing:")
+        print("Missing files:")
         for m in missing:
             print(f"  • {m}")
         sys.exit(1)
@@ -123,7 +113,7 @@ def check_files():
 def clean_old():
     for d in TEMP_FOLDERS:
         if os.path.exists(d):
-            print(f"[CLEAN] Removing {d}/")
+            print(f"[CLEAN] {d}/")
             try:
                 shutil.rmtree(d, ignore_errors=True)
             except:
@@ -132,7 +122,7 @@ def clean_old():
 
 def run_build():
     print("\n" + "═"*80)
-    print(f" BUILDING {EXE_NAME}.exe ".center(80))
+    print(f" BUILDING {EXE_NAME}.exe (with key & secrets bundled) ".center(80))
     print("═"*80 + "\n")
 
     print("Command:")
@@ -142,52 +132,49 @@ def run_build():
     try:
         subprocess.run(PYINSTALLER_CMD, check=True)
     except subprocess.CalledProcessError as e:
-        print("\nBuild FAILED!")
-        print(e.stdout.decode(errors="replace"))
+        print("\nPyInstaller FAILED!")
+        print(e)
         sys.exit(1)
 
 
 def copy_release():
     os.makedirs(RELEASE_FOLDER, exist_ok=True)
-
     files = [
-        (f"dist/{EXE_NAME}.exe",          f"{RELEASE_FOLDER}/{EXE_NAME}.exe"),
-        (ENCRYPTED_FILE,                  f"{RELEASE_FOLDER}/{ENCRYPTED_FILE}"),
-        (ICON_FILE,                       f"{RELEASE_FOLDER}/{ICON_FILE}"),
-        ("build-key.key",                 f"{RELEASE_FOLDER}/build-key.key"),
+        (f"dist/{EXE_NAME}.exe",    f"{RELEASE_FOLDER}/{EXE_NAME}.exe"),
+        (ENCRYPTED_FILE,            f"{RELEASE_FOLDER}/{ENCRYPTED_FILE}"),
+        (KEY_FILE_NAME,             f"{RELEASE_FOLDER}/{KEY_FILE_NAME}"),
+        (ICON_FILE,                 f"{RELEASE_FOLDER}/{ICON_FILE}"),
     ]
-
     for src, dst in files:
         if os.path.exists(src):
             shutil.copy2(src, dst)
             print(f"[COPY] {dst}")
         else:
-            print(f"[WARN] Not found: {src}")
+            print(f"[WARN] {src} missing")
 
 
 def cleanup():
-    print("\nCleaning temp...")
+    print("\nCleaning...")
     for d in TEMP_FOLDERS:
         if os.path.exists(d):
             try:
                 shutil.rmtree(d)
                 print(f"[RM] {d}/")
             except:
-                print(f"[FAIL] Could not delete {d}")
+                pass
 
 
 def summary():
-    print("\n" + "═"*90)
-    print(" BUILD COMPLETE - client.notycapz IS BUNDLED INSIDE EXE ".center(90, "═"))
-    print("═"*90)
+    print("\n" + "═"*100)
+    print(" BUILD FINISHED - Key & Secrets BUNDLED INSIDE EXE ".center(100, "═"))
+    print("═"*100)
     print(f"Folder: {RELEASE_FOLDER}")
     print(f"EXE   : {RELEASE_FOLDER}/{EXE_NAME}.exe")
-    print(f"Key   : {RELEASE_FOLDER}/build-key.key")
-    print("\nNow run NotyCaption.exe → it should detect EXE (encrypted) mode and decrypt successfully.\n")
+    print("\nRun it → decryption should now succeed with the same key.\n")
 
 
 def main():
-    print("NotyCaption Build - Fixed Encryption & Bundling\n")
+    print("NotyCaption Build - Fixed Key Bundling\n")
     check_files()
     encrypt_client()
     clean_old()
@@ -200,9 +187,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except KeyboardInterrupt:
-        print("\nAborted.")
-        sys.exit(1)
     except Exception as e:
-        print(f"\nBuild crashed: {type(e).__name__}: {e}")
+        print(f"Build failed: {e}")
         sys.exit(1)
