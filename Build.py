@@ -1,8 +1,10 @@
 # build.py
 """
 Build script for NotyCaption Pro
-Creates encrypted client.notycapz from client.json
-Builds single-file EXE using PyInstaller
+- Encrypts client.json → client.notycapz
+- Builds single-file EXE with PyInstaller
+- Copies essential files to dated release folder
+- Deletes build/ and dist/ folders after successful copy
 """
 
 import os
@@ -19,23 +21,26 @@ from cryptography.fernet import Fernet
 #  CONFIGURATION
 # ────────────────────────────────────────────────
 
-APP_NAME = "NotyCaption"
-MAIN_SCRIPT = "main.py"
-ICON_FILE = "App.ico"
+APP_NAME          = "NotyCaption"
+MAIN_SCRIPT       = "main.py"
+ICON_FILE         = "App.ico"
 
-# Expected input files in the same folder as build.py
+# Files that must exist in the same folder as this script
 REQUIRED_FILES = [
     MAIN_SCRIPT,
     ICON_FILE,
-    "client.json",           # ← your Google API credentials
+    "client.json",           # Google API credentials
 ]
 
-# Output directories
-DIST_DIR = "dist"
-BUILD_DIR = "build"
-OUTPUT_VERSION_FOLDER = f"release_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}"
+# Folders that will be cleaned up after successful build & copy
+TEMP_FOLDERS_TO_DELETE = ["build", "dist"]
 
-# PyInstaller command base (will be extended)
+# Output versioned folder name pattern
+RELEASE_FOLDER_PREFIX = "release"
+VERSION_TIMESTAMP     = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+RELEASE_FOLDER        = f"{RELEASE_FOLDER_PREFIX}_{VERSION_TIMESTAMP}"
+
+# PyInstaller base command
 PYINSTALLER_CMD = [
     "pyinstaller",
     "--onefile",
@@ -45,7 +50,8 @@ PYINSTALLER_CMD = [
     f"--icon={ICON_FILE}",
     f"--name={APP_NAME}",
     "--add-data", f"{ICON_FILE};.",
-    "--hidden-import", "pkg_resources.py2_warn",  # sometimes needed
+    # Hidden imports - add more if you get ModuleNotFoundError in the exe
+    "--hidden-import", "pkg_resources.py2_warn",
     "--hidden-import", "google.auth.transport.requests",
     "--hidden-import", "google.oauth2.credentials",
     "--hidden-import", "google_auth_oauthlib.flow",
@@ -55,158 +61,160 @@ PYINSTALLER_CMD = [
     "--hidden-import", "pysubs2",
     "--hidden-import", "spleeter",
     "--hidden-import", "whisper",
-    # You can add more hidden-imports if you get import errors
+    "--hidden-import", "moviepy",
+    "--hidden-import", "imageio",
+    "--hidden-import", "imageio_ffmpeg",
+    MAIN_SCRIPT
 ]
 
 # ────────────────────────────────────────────────
-#  ENCRYPTION FUNCTIONS
+#  ENCRYPTION HELPERS
 # ────────────────────────────────────────────────
 
 def generate_or_load_key(key_path="build_key.key"):
-    """Generate or load Fernet key for encryption"""
     if os.path.exists(key_path):
         with open(key_path, "rb") as f:
-            key = f.read()
-        print(f"→ Using existing encryption key: {key_path}")
-        return key
+            return f.read()
 
     key = Fernet.generate_key()
     with open(key_path, "wb") as f:
         f.write(key)
-    print(f"→ Generated new encryption key → {key_path}")
-    print("   !! KEEP THIS KEY SAFE !! You will need it to decrypt later.")
+    print(f"→ Created new encryption key: {key_path}")
+    print("   !! KEEP THIS FILE SAFE !!")
     return key
 
 
-def encrypt_client_json(key: bytes, input_json="client.json", output_enc="client.notycapz"):
-    """Encrypt client.json → client.notycapz"""
-    if not os.path.exists(input_json):
-        print(f"ERROR: {input_json} not found!")
-        print("You must place your Google API client.json in the same folder.")
+def encrypt_client_json(key: bytes, input_file="client.json", output_file="client.notycapz"):
+    if not os.path.isfile(input_file):
+        print(f"ERROR: {input_file} not found!")
+        print("You must place your Google client.json in this folder.")
         sys.exit(1)
 
-    with open(input_json, "r", encoding="utf-8") as f:
+    with open(input_file, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     fernet = Fernet(key)
-    json_bytes = json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
-    encrypted = fernet.encrypt(json_bytes)
-    encoded = base64.b85encode(encrypted).decode("ascii")   # more compact than b64
+    json_str = json.dumps(data, ensure_ascii=False, indent=2)
+    encrypted = fernet.encrypt(json_str.encode("utf-8"))
+    encoded = base64.b85encode(encrypted).decode("ascii")
 
-    with open(output_enc, "w", encoding="ascii") as f:
+    with open(output_file, "w", encoding="ascii") as f:
         f.write(encoded)
 
-    print(f"→ Successfully encrypted → {output_enc}")
-    print(f"   Size: {os.path.getsize(output_enc):,} bytes")
+    print(f"→ Encrypted client secrets → {output_file}")
 
 
 # ────────────────────────────────────────────────
-#  MAIN BUILD LOGIC
+#  BUILD & CLEANUP LOGIC
 # ────────────────────────────────────────────────
 
-def check_requirements():
-    """Basic sanity check"""
-    missing = []
-    for f in REQUIRED_FILES:
-        if not os.path.isfile(f):
-            missing.append(f)
-
+def check_prerequisites():
+    missing = [f for f in REQUIRED_FILES if not os.path.isfile(f)]
     if missing:
         print("Missing required files:")
-        for m in missing:
-            print(f"  • {m}")
-        print("\nPlace all required files in the same directory as build.py")
+        for f in missing:
+            print(f"  • {f}")
         sys.exit(1)
 
 
-def prepare_build():
-    """Create clean build environment"""
-    for d in [BUILD_DIR, DIST_DIR]:
-        if os.path.exists(d):
-            print(f"→ Removing old {d}/ ...")
-            shutil.rmtree(d, ignore_errors=True)
+def clean_previous_builds():
+    for folder in TEMP_FOLDERS_TO_DELETE:
+        if os.path.exists(folder):
+            print(f"→ Removing old folder: {folder}/")
+            try:
+                shutil.rmtree(folder, ignore_errors=True)
+            except Exception as e:
+                print(f"  Warning: could not remove {folder} → {e}")
 
-    os.makedirs(DIST_DIR, exist_ok=True)
 
-
-def build_exe():
-    """Run PyInstaller"""
-    print("\n" + "="*70)
-    print(" Starting PyInstaller build...")
-    print("="*70 + "\n")
-
-    cmd = PYINSTALLER_CMD + [MAIN_SCRIPT]
+def run_pyinstaller():
+    print("\n" + "═"*70)
+    print(" Running PyInstaller ...")
+    print("═"*70 + "\n")
 
     try:
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        result = subprocess.run(
+            PYINSTALLER_CMD,
+            check=True,
+            capture_output=True,
+            text=True
+        )
         print(result.stdout)
     except subprocess.CalledProcessError as e:
         print("PyInstaller failed!")
         print(e.stdout)
-        print(e.stderr)
+        if e.stderr:
+            print(e.stderr)
         sys.exit(1)
 
 
-def post_build_actions():
-    """Copy important files to versioned output folder"""
-    version_folder = OUTPUT_VERSION_FOLDER
-    os.makedirs(version_folder, exist_ok=True)
+def copy_important_files():
+    os.makedirs(RELEASE_FOLDER, exist_ok=True)
 
-    # Main executable
-    exe_name = f"{APP_NAME}.exe"
-    src_exe = os.path.join(DIST_DIR, exe_name)
-    if os.path.exists(src_exe):
-        shutil.copy2(src_exe, version_folder)
-        print(f"→ Copied {exe_name} → {version_folder}/")
+    files_to_copy = [
+        (f"dist/{APP_NAME}.exe",          f"{RELEASE_FOLDER}/{APP_NAME}.exe"),
+        ("client.notycapz",               f"{RELEASE_FOLDER}/client.notycapz"),
+        (ICON_FILE,                       f"{RELEASE_FOLDER}/{ICON_FILE}"),
+        ("build_key.key",                 f"{RELEASE_FOLDER}/build_key.key"),
+    ]
 
-    # Encrypted client secrets
-    if os.path.exists("client.notycapz"):
-        shutil.copy2("client.notycapz", version_folder)
-        print(f"→ Copied client.notycapz → {version_folder}/")
+    copied = []
+    for src, dst in files_to_copy:
+        if os.path.exists(src):
+            shutil.copy2(src, dst)
+            copied.append(dst)
+            print(f"→ Copied: {dst}")
+        else:
+            print(f"Warning: {src} not found → skipping")
 
-    # Icon (for reference)
-    if os.path.exists(ICON_FILE):
-        shutil.copy2(ICON_FILE, version_folder)
+    if not any("exe" in c for c in copied):
+        print("\nERROR: Executable was not created or not found in dist/")
+        sys.exit(1)
 
-    # Copy encryption key (VERY IMPORTANT!)
-    key_file = "build_key.key"
-    if os.path.exists(key_file):
-        shutil.copy2(key_file, version_folder)
-        print(f"→ Copied encryption key {key_file} → {version_folder}/")
-        print("   !! SAVE THIS KEY SOMEWHERE SAFE !!")
-    else:
-        print("\nWARNING: build_key.key not found in output folder!")
 
-    print(f"\nBuild artifacts saved in: {version_folder}/")
+def cleanup_temp_folders():
+    print("\nCleaning up temporary folders...")
+    for folder in TEMP_FOLDERS_TO_DELETE:
+        if os.path.exists(folder):
+            try:
+                shutil.rmtree(folder)
+                print(f"→ Deleted: {folder}/")
+            except Exception as e:
+                print(f"  Could not delete {folder} → {e}")
+
+
+def print_final_summary():
+    print("\n" + "═"*80)
+    print(f" BUILD FINISHED SUCCESSFULLY ".center(80, "═"))
+    print("═"*80)
+    print(f"Release folder : {RELEASE_FOLDER}")
+    print(f"Executable     : {RELEASE_FOLDER}/{APP_NAME}.exe")
+    print(f"Encrypted auth : {RELEASE_FOLDER}/client.notycapz")
+    print(f"Encryption key : {RELEASE_FOLDER}/build_key.key   ← VERY IMPORTANT!")
+    print("\nDone.\n")
 
 
 def main():
     print("NotyCaption Pro - Build Tool\n")
-    print(f"Date: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n")
+    print(f"Started: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n")
 
-    check_requirements()
+    check_prerequisites()
+    clean_previous_builds()
 
-    # Step 1: Encrypt client secrets
+    # Encrypt secrets
     key = generate_or_load_key()
     encrypt_client_json(key)
 
-    # Step 2: Prepare clean build
-    prepare_build()
+    # Build
+    run_pyinstaller()
 
-    # Step 3: Build EXE
-    build_exe()
+    # Copy & organize
+    copy_important_files()
 
-    # Step 4: Organize output
-    post_build_actions()
+    # Final cleanup
+    cleanup_temp_folders()
 
-    print("\n" + "="*70)
-    print(" BUILD FINISHED ".center(70, "="))
-    print("="*70)
-    print(f"Output folder : {OUTPUT_VERSION_FOLDER}")
-    print(f"Executable    : {OUTPUT_VERSION_FOLDER}/{APP_NAME}.exe")
-    print(f"Encrypted auth: {OUTPUT_VERSION_FOLDER}/client.notycapz")
-    print(f"Encryption key: {OUTPUT_VERSION_FOLDER}/build_key.key  ← VERY IMPORTANT!")
-    print("\nDone.\n")
+    print_final_summary()
 
 
 if __name__ == "__main__":
@@ -216,5 +224,5 @@ if __name__ == "__main__":
         print("\nBuild aborted by user.")
         sys.exit(1)
     except Exception as e:
-        print(f"\nUnexpected error during build:\n{e}")
+        print(f"\nBuild failed unexpectedly:\n{type(e).__name__}: {e}")
         sys.exit(1)
