@@ -2,13 +2,13 @@
 # App name: NotyCaption
 # Developer: NotY215
 # All rights reserved by NotY215
-# Version: 2.3 - Fixed Progress Bar, Cancel Button, Button Clickability, Overlay Positioning (2026)
+# Version: 2.4 - Fixed Logger Initialization Order, Moved Logging Setup to Top (2026)
 # Features: Audio/Video import, Spleeter enhancement (GPU/CPU auto), Google Colab integration (GPU runtime forced),
 #           Subtitle export (SRT/ASS), Real-time playback with sync highlighting, Editable captions,
 #           Settings persistence with encryption, Cancelable model download with overlay & progress,
 #           Fixed oauth2client/google-auth cache conflict, Model download dialog now opens reliably,
 #           Enhanced overlay for full window coverage, Real-time progress updates, Button states preserved,
-#           Resize-aware overlay, Improved thread cancellation with UI feedback.
+#           Resize-aware overlay, Improved thread cancellation with UI feedback, Logger setup before encryption.
 
 import sys
 import os
@@ -58,6 +58,53 @@ import tensorflow as tf
 tf.get_logger().setLevel('ERROR')
 
 # ========================================
+# LOGGING SETUP - Secure & Persistent (MOVED TO TOP)
+# ========================================
+def setup_logging():
+    """
+    Configure logging with file and console handlers.
+    Creates timestamped log files in logs/ directory.
+    Handles both dev and frozen (EXE) modes.
+    """
+    CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))  # Define here for logging
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(sys.executable)
+        print(f"Logging in frozen EXE mode to {base_dir}")  # Temp print before logger
+    else:
+        base_dir = CURRENT_DIR
+        print(f"Logging in development mode to {base_dir}")  # Temp print
+
+    log_dir = os.path.join(base_dir, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    print(f"Log directory: {log_dir}")  # Temp print
+
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3]
+    log_file = os.path.join(log_dir, f"NotyCaption_{timestamp}.log")
+    print(f"Log file path: {log_file}")  # Temp print
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)-8s | %(message)s',
+        handlers=[
+            logging.FileHandler(log_file, encoding='utf-8'),
+            logging.StreamHandler(sys.stdout)
+        ],
+        force=True
+    )
+    logger = logging.getLogger("NotyCaption")
+    logger.info("=== NotyCaption Secure Launch 2026 ===")
+    logger.info(f"Python version: {sys.version}")
+    logger.info(f"Working directory: {os.getcwd()}")
+    logger.info(f"Log file: {log_file}")
+    logger.info(f"PyInstaller frozen: {getattr(sys, 'frozen', False)}")
+    logger.info(f"Executable path: {sys.executable if getattr(sys, 'frozen', False) else 'dev mode'}")
+    logger.info(f"Client mode: {'EXE (encrypted)' if os.path.exists(os.path.join(CURRENT_DIR, 'client.notycapz')) else 'Dev (plain)'}")
+    logger.info(f"CUDA available: {tf.test.is_built_with_cuda()} (Auto-fallback to CPU if no GPU)")
+    return logger
+
+logger = setup_logging()
+
+# ========================================
 # RESOURCE PATH HELPER - For Bundled EXE
 # ========================================
 def resource_path(relative_path):
@@ -70,7 +117,7 @@ def resource_path(relative_path):
         base_path = sys._MEIPASS
         logger.info(f"Resource path using PyInstaller temp: {base_path}")
     except Exception:
-        base_path = os.path.abspath(".")
+        base_path = os.path.dirname(os.path.abspath(__file__))
         logger.info(f"Resource path using dev directory: {base_path}")
     full_path = os.path.join(base_path, relative_path)
     if not os.path.exists(full_path):
@@ -194,52 +241,6 @@ def load_client_secrets():
     else:
         logger.warning("No client secrets found - Online mode unavailable")
     return None
-
-# ========================================
-# LOGGING SETUP - Secure & Persistent
-# ========================================
-def setup_logging():
-    """
-    Configure logging with file and console handlers.
-    Creates timestamped log files in logs/ directory.
-    Handles both dev and frozen (EXE) modes.
-    """
-    if getattr(sys, 'frozen', False):
-        base_dir = os.path.dirname(sys.executable)
-        logger.info("Logging in frozen EXE mode")
-    else:
-        base_dir = CURRENT_DIR
-        logger.info("Logging in development mode")
-
-    log_dir = os.path.join(base_dir, "logs")
-    os.makedirs(log_dir, exist_ok=True)
-    logger.info(f"Log directory: {log_dir}")
-
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3]
-    log_file = os.path.join(log_dir, f"NotyCaption_{timestamp}.log")
-    logger.info(f"Log file path: {log_file}")
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s | %(levelname)-8s | %(message)s',
-        handlers=[
-            logging.FileHandler(log_file, encoding='utf-8'),
-            logging.StreamHandler(sys.stdout)
-        ],
-        force=True
-    )
-    logger = logging.getLogger("NotyCaption")
-    logger.info("=== NotyCaption Secure Launch 2026 ===")
-    logger.info(f"Python version: {sys.version}")
-    logger.info(f"Working directory: {os.getcwd()}")
-    logger.info(f"Log file: {log_file}")
-    logger.info(f"PyInstaller frozen: {getattr(sys, 'frozen', False)}")
-    logger.info(f"Executable path: {sys.executable if getattr(sys, 'frozen', False) else 'dev mode'}")
-    logger.info(f"Client mode: {'EXE (encrypted)' if os.path.exists(CLIENT_ENCRYPTED) else 'Dev (plain)'}")
-    logger.info(f"CUDA available: {tf.test.is_built_with_cuda()} (Auto-fallback to CPU if no GPU)")
-    return logger
-
-logger = setup_logging()
 
 # ========================================
 # SINGLE INSTANCE CHECK - Socket Based
