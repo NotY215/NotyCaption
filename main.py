@@ -861,10 +861,12 @@ def validate_model_file(model_path):
 def cleanup_corrupt_models(models_dir):
     """
     Remove corrupt or incomplete model files.
+    Returns True if any files were removed.
     """
     if not os.path.exists(models_dir):
-        return
+        return False
     
+    removed = False
     model_files = [
         os.path.join(models_dir, "large-v1.pt"),
         os.path.join(models_dir, "large.pt"),
@@ -873,15 +875,22 @@ def cleanup_corrupt_models(models_dir):
     
     for model_path in model_files:
         if os.path.exists(model_path):
-            if not validate_model_file(model_path) or model_path.endswith('.tmp'):
-                try:
+            try:
+                # Try to open the file to check if it's locked
+                with open(model_path, 'rb') as f:
+                    pass
+                
+                if not validate_model_file(model_path) or model_path.endswith('.tmp'):
                     os.remove(model_path)
                     logger.info(f"Removed corrupt/incomplete model: {model_path}")
-                except Exception as e:
-                    logger.warning(f"Failed to remove corrupt model {model_path}: {e}")
+                    removed = True
+            except (IOError, OSError) as e:
+                logger.warning(f"Cannot access model file {model_path}: {e}")
+    
+    return removed
 
 # ========================================
-# CUSTOM DOWNLOAD HANDLER FOR WHISPER - FIXED VERSION WITH PROPER ATTRIBUTES
+# CUSTOM DOWNLOAD HANDLER FOR WHISPER - FIXED VERSION WITH PROPER CANCELLATION
 # ========================================
 class CancellableWhisperDownloader:
     """Custom download handler that intercepts Whisper's download process"""
@@ -890,25 +899,41 @@ class CancellableWhisperDownloader:
         self._canceled = False
         self._progress_callback = None
         self._current_download = None
-        self._downloaded = 0  # Add this attribute
-        self._total_size = 0   # Add this attribute
+        self._downloaded = 0
+        self._total_size = 0
         self._download_completed = False
+        self._lock = threading.Lock()
+        self._response = None
+        self._temp_path = None
         
     def cancel(self):
         """Cancel the download immediately"""
-        self._canceled = True
-        logger.info("Download cancellation requested - will stop at next chunk")
+        with self._lock:
+            self._canceled = True
+            # Force close the response if it exists
+            if self._response:
+                try:
+                    self._response.close()
+                except:
+                    pass
+        logger.info("Download cancellation requested - will stop immediately")
+        
+    def is_canceled(self):
+        """Check if download is canceled"""
+        with self._lock:
+            return self._canceled
         
     def patched_download_url_to_file(self, original_func, url, dst, *args, **kwargs):
         """Patched version of download_url_to_file that checks for cancellation"""
         
         # Check cancellation before starting
-        if self._canceled:
+        if self.is_canceled():
             raise Exception("DOWNLOAD_CANCELED_BY_USER")
         
         # Store download info for potential cancellation
         self._current_download = {'url': url, 'dst': dst}
         self._download_completed = False
+        self._temp_path = dst + '.tmp'
         
         try:
             import urllib.request
@@ -917,71 +942,82 @@ class CancellableWhisperDownloader:
             # Create a custom opener with progress tracking
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             
-            with urllib.request.urlopen(req, timeout=30) as response:
-                # Check cancellation after opening connection
-                if self._canceled:
-                    raise Exception("DOWNLOAD_CANCELED_BY_USER")
+            self._response = urllib.request.urlopen(req, timeout=30)
+            
+            # Check cancellation after opening connection
+            if self.is_canceled():
+                self._response.close()
+                raise Exception("DOWNLOAD_CANCELED_BY_USER")
+            
+            # Get file size for progress tracking
+            self._total_size = int(self._response.headers.get('Content-Length', 0))
+            
+            # Download with chunk-by-chunk cancellation
+            with open(self._temp_path, 'wb') as out_file:
+                self._downloaded = 0
+                chunk_size = 8192  # 8KB chunks
                 
-                # Get file size for progress tracking
-                self._total_size = int(response.headers.get('Content-Length', 0))
-                
-                # Download with chunk-by-chunk cancellation
-                with open(dst + '.tmp', 'wb') as out_file:
-                    self._downloaded = 0
-                    chunk_size = 8192  # 8KB chunks
+                while True:
+                    # Check cancellation before each chunk
+                    if self.is_canceled():
+                        logger.info("Cancellation detected during download")
+                        out_file.close()
+                        self._response.close()
+                        if os.path.exists(self._temp_path):
+                            try:
+                                os.remove(self._temp_path)
+                            except:
+                                pass
+                        raise Exception("DOWNLOAD_CANCELED_BY_USER")
                     
-                    while True:
-                        # Check cancellation before each chunk
-                        if self._canceled:
-                            logger.info("Cancellation detected during download")
-                            out_file.close()
-                            if os.path.exists(dst + '.tmp'):
-                                os.remove(dst + '.tmp')
-                            raise Exception("DOWNLOAD_CANCELED_BY_USER")
-                        
-                        chunk = response.read(chunk_size)
-                        if not chunk:
-                            break
-                        
-                        out_file.write(chunk)
-                        self._downloaded += len(chunk)
-                        
-                        # Report progress
-                        if self._progress_callback and self._total_size > 0:
-                            progress = int((self._downloaded / self._total_size) * 100)
-                            if progress < 100:
-                                self._progress_callback(progress)
-                
-                # Final cancellation check
-                if self._canceled:
-                    if os.path.exists(dst + '.tmp'):
-                        os.remove(dst + '.tmp')
-                    raise Exception("DOWNLOAD_CANCELED_BY_USER")
-                
-                # Validate downloaded file
-                if os.path.exists(dst + '.tmp'):
-                    file_size = os.path.getsize(dst + '.tmp')
-                    if file_size < self._total_size * 0.99:  # Less than 99% of expected size
-                        logger.warning(f"Downloaded file size mismatch: {file_size} vs {self._total_size}")
-                        os.remove(dst + '.tmp')
-                        raise Exception("DOWNLOAD_INCOMPLETE")
-                
-                # Move temp file to final destination
-                if os.path.exists(dst):
-                    os.remove(dst)
-                os.rename(dst + '.tmp', dst)
-                self._download_completed = True
+                    chunk = self._response.read(chunk_size)
+                    if not chunk:
+                        break
+                    
+                    out_file.write(chunk)
+                    self._downloaded += len(chunk)
+                    
+                    # Report progress
+                    if self._progress_callback and self._total_size > 0:
+                        progress = int((self._downloaded / self._total_size) * 100)
+                        if progress < 100:
+                            self._progress_callback(progress)
+            
+            # Final cancellation check
+            if self.is_canceled():
+                if os.path.exists(self._temp_path):
+                    try:
+                        os.remove(self._temp_path)
+                    except:
+                        pass
+                raise Exception("DOWNLOAD_CANCELED_BY_USER")
+            
+            # Validate downloaded file
+            if os.path.exists(self._temp_path):
+                file_size = os.path.getsize(self._temp_path)
+                if file_size < self._total_size * 0.99:  # Less than 99% of expected size
+                    logger.warning(f"Downloaded file size mismatch: {file_size} vs {self._total_size}")
+                    os.remove(self._temp_path)
+                    raise Exception("DOWNLOAD_INCOMPLETE")
+            
+            # Move temp file to final destination
+            if os.path.exists(dst):
+                os.remove(dst)
+            os.rename(self._temp_path, dst)
+            self._download_completed = True
                 
         except Exception as e:
             # Clean up temp file on error
-            if os.path.exists(dst + '.tmp'):
+            if hasattr(self, '_temp_path') and self._temp_path and os.path.exists(self._temp_path):
                 try:
-                    os.remove(dst + '.tmp')
+                    os.remove(self._temp_path)
                 except:
                     pass
             raise e
         finally:
             self._current_download = None
+            self._response = None
+            self._temp_path = None
         
         return dst
 
@@ -994,11 +1030,14 @@ class CancellableWhisperDownloader:
             download_root: Directory to download to
             progress_callback: Function to call with progress percentage
         """
-        self._canceled = False
+        with self._lock:
+            self._canceled = False
         self._progress_callback = progress_callback
         self._downloaded = 0
         self._total_size = 0
         self._download_completed = False
+        self._response = None
+        self._temp_path = None
         
         try:
             import torch.hub
@@ -1015,7 +1054,7 @@ class CancellableWhisperDownloader:
             torch.hub.download_url_to_file = patched_func
             
             # Check cancellation before loading
-            if self._canceled:
+            if self.is_canceled():
                 raise Exception("DOWNLOAD_CANCELED_BY_USER")
             
             logger.info(f"Starting download of {model_name} model to {download_root}")
@@ -1032,14 +1071,17 @@ class CancellableWhisperDownloader:
             )
             
             # Check cancellation after loading
-            if self._canceled:
+            if self.is_canceled():
                 raise Exception("DOWNLOAD_CANCELED_BY_USER")
             
             # Validate the downloaded model
             if not validate_model_file(model_path):
                 logger.warning("Downloaded model validation failed")
                 if os.path.exists(model_path):
-                    os.remove(model_path)
+                    try:
+                        os.remove(model_path)
+                    except:
+                        pass
                 raise Exception("Model validation failed")
                 
             logger.info("Model downloaded and validated successfully")
@@ -1072,6 +1114,8 @@ class CancellableWhisperDownloader:
             # Restore original function
             import torch.hub
             torch.hub.download_url_to_file = original_download
+            self._response = None
+            self._temp_path = None
 
 # ========================================
 # MODEL DOWNLOAD THREAD - Fixed with proper cancellation
@@ -1090,6 +1134,8 @@ class ModelDownloadThread(QThread):
         self.model_dir = model_dir
         self._is_canceled = False
         self._download_started = False
+        self._download_completed = False
+        self._lock = threading.Lock()
         self._downloader = CancellableWhisperDownloader()
         logger.info(f"ModelDownloadThread initialized for {model_dir}")
 
@@ -1097,10 +1143,21 @@ class ModelDownloadThread(QThread):
         """
         Set cancellation flag and stop the download immediately.
         """
-        if not self._is_canceled and self._download_started:
-            self._is_canceled = True
-            self._downloader.cancel()
-            logger.info("Model download cancellation requested - stopping download immediately")
+        with self._lock:
+            if not self._is_canceled and self._download_started and not self._download_completed:
+                self._is_canceled = True
+                self._downloader.cancel()
+                logger.info("Model download cancellation requested - stopping download immediately")
+                
+                # Force thread to exit by terminating if it doesn't respond
+                if self.isRunning():
+                    self.terminate()
+                    self.wait(1000)
+
+    def is_downloading(self):
+        """Check if download is in progress"""
+        with self._lock:
+            return self._download_started and not self._download_completed and not self._is_canceled
 
     @pyqtSlot()
     def run(self):
@@ -1130,19 +1187,23 @@ class ModelDownloadThread(QThread):
                 self.finished.emit(True, "Model already exists and is valid!")
                 return
             
-            self._download_started = True
+            with self._lock:
+                self._download_started = True
+                self._download_completed = False
             
             # Download with progress callback
             model = self._downloader.download_model(
-                "large-v1",  # Use large-v1 instead of large
+                "large-v1",
                 self.model_dir,
                 progress_callback=lambda p: self.progress.emit(p)
             )
             
-            if self._is_canceled:
-                logger.info("Download was canceled after completion check")
-                self.canceled.emit()
-                return
+            with self._lock:
+                if self._is_canceled:
+                    logger.info("Download was canceled after completion check")
+                    self.canceled.emit()
+                    return
+                self._download_completed = True
             
             # Final validation
             if validate_model_file(model_path_v1):
@@ -1156,23 +1217,16 @@ class ModelDownloadThread(QThread):
             error_str = str(dl_err)
             if "canceled" in error_str.lower():
                 logger.info("Download was canceled by user")
-                # Clean up any remaining files
-                model_path = os.path.join(self.model_dir, "large-v1.pt")
-                temp_path = model_path + '.tmp'
-                for path in [model_path, temp_path]:
-                    if os.path.exists(path):
-                        try:
-                            os.remove(path)
-                            logger.info(f"Cleaned up file after cancel: {path}")
-                        except:
-                            pass
+                with self._lock:
+                    self._download_completed = True
                 self.canceled.emit()
             elif not self._is_canceled:  # Only report error if not canceled
                 error_msg = f"Download error: {str(dl_err)}"
                 logger.error(f"Model thread error: {traceback.format_exc()}")
                 self.finished.emit(False, error_msg)
         finally:
-            self._download_started = False
+            with self._lock:
+                self._download_started = False
 
 # ========================================
 # MAIN APPLICATION WINDOW
@@ -1317,6 +1371,7 @@ class NotyCaptionWindow(QMainWindow):
         self.player_timer = QTimer(self)
         self.player_timer.timeout.connect(self.update_timeline)
         self.player_timer.start(50)
+        self._closing = False
 
         self.load_existing_credentials()
 
@@ -1587,6 +1642,8 @@ class NotyCaptionWindow(QMainWindow):
         self.mode = self.settings.get("last_mode", "normal")
         self.is_generating = False
         self.service = None
+        self._closing = False
+        self._cancel_processed = False
         self.mode_combo.setCurrentText("☁️ Online (Colab + Drive)" if self.mode == "online" else "🖥️ Normal (Local Whisper)")
 
         self.update_download_button_visibility()
@@ -1687,15 +1744,25 @@ class NotyCaptionWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent):
         """Handle app close: cleanup threads, files, Drive, save settings."""
         logger.info("App close event triggered")
+        self._closing = True
+        
+        # Stop player and timers
         self.player.stop()
         self.player_timer.stop()
         self.online_handler.poll_timer.stop()
 
-        # Cancel any ongoing download
+        # Cancel any ongoing download and wait for it to finish
         if self.model_download_thread and self.model_download_thread.isRunning():
+            logger.info("Download thread still running, canceling and waiting...")
             self.model_download_thread.cancel()
-            self.model_download_thread.wait(2000)  # Wait up to 2 seconds for clean shutdown
+            
+            # Wait for thread to finish (with timeout)
+            if not self.model_download_thread.wait(3000):  # Wait up to 3 seconds
+                logger.warning("Download thread did not finish in time, terminating...")
+                self.model_download_thread.terminate()
+                self.model_download_thread.wait(1000)
 
+        # Clean up temp files
         if self.audio_file and self.audio_file.endswith(".temp.wav") and os.path.exists(self.audio_file):
             try:
                 os.remove(self.audio_file)
@@ -1713,8 +1780,11 @@ class NotyCaptionWindow(QMainWindow):
         if self.online_handler.service:
             self.online_handler.cleanup_drive()
 
-        # Clean up corrupt models on exit
-        cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
+        # Clean up corrupt models on exit (only if not locked)
+        try:
+            cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
+        except Exception as e:
+            logger.warning(f"Failed to clean up models on exit: {e}")
 
         self.settings["last_mode"] = self.mode
         save_settings(self.settings)
@@ -2045,7 +2115,7 @@ class NotyCaptionWindow(QMainWindow):
 
     def confirm_cancel_download(self):
         """Show confirmation dialog before canceling download."""
-        if not self.model_download_thread or not self.model_download_thread.isRunning():
+        if self._closing or not self.model_download_thread or not self.model_download_thread.is_downloading():
             return
             
         reply = QMessageBox.question(
@@ -2065,21 +2135,32 @@ class NotyCaptionWindow(QMainWindow):
             if self.model_download_thread:
                 self.model_download_thread.cancel()
                 
-                # Don't force terminate - let it clean up naturally
-                QTimer.singleShot(100, self._check_cancel_complete)
+                # Force UI update immediately
+                self.overlay.hide()
+                self.on_model_download_canceled()
+                
             logger.info("User confirmed download cancellation")
 
     def _check_cancel_complete(self):
         """Check if cancellation is complete"""
+        if self._closing:
+            return
+            
         if self.model_download_thread and self.model_download_thread.isRunning():
-            # Still running, check again in a moment
-            QTimer.singleShot(100, self._check_cancel_complete)
+            # Still running, force terminate
+            logger.warning("Download thread still running after cancel - forcing termination")
+            self.model_download_thread.terminate()
+            self.model_download_thread.wait(1000)
+            self.on_model_download_canceled()
         else:
             # Thread finished, ensure UI is updated
             self.on_model_download_canceled()
 
     def open_model_download_dialog(self):
         """Open dialog for model download options."""
+        if self._closing:
+            return
+            
         logger.info("Opening model download dialog")
         dlg = QDialog(self)
         dlg.setWindowTitle("Whisper large-v1 Model Download")
@@ -2168,6 +2249,7 @@ class NotyCaptionWindow(QMainWindow):
         self.download_prog.setFormat("%p%")
         self.prog_info.setText("Starting download...")
         self.cancel_download_btn.setEnabled(True)
+        self._cancel_processed = False
 
         # Disable other buttons
         self.gen_btn.setEnabled(False)
@@ -2187,6 +2269,9 @@ class NotyCaptionWindow(QMainWindow):
 
     def on_download_progress(self, value):
         """Update download progress display."""
+        if self._closing:
+            return
+            
         self.download_prog.setValue(value)
         
         # Format the progress info nicely with error handling
@@ -2220,6 +2305,9 @@ class NotyCaptionWindow(QMainWindow):
     @pyqtSlot(bool, str)
     def on_model_download_finished(self, success, message):
         """Handle download completion."""
+        if self._closing:
+            return
+            
         self.overlay.hide()
         # Re-enable buttons
         self.gen_btn.setEnabled(True)
@@ -2238,12 +2326,13 @@ class NotyCaptionWindow(QMainWindow):
             QMessageBox.critical(self, "Download Failed", message)
             logger.error("Model download failed")
         self.model_download_thread = None
+        self._cancel_processed = False
 
     @pyqtSlot()
     def on_model_download_canceled(self):
         """Handle cancellation: hide overlay, re-enable buttons."""
         # Ensure we only process once
-        if hasattr(self, '_cancel_processed') and self._cancel_processed:
+        if self._closing or self._cancel_processed:
             return
         self._cancel_processed = True
         
@@ -2257,8 +2346,11 @@ class NotyCaptionWindow(QMainWindow):
         self.cancel_download_btn.setEnabled(False)
         logger.info("UI buttons re-enabled after cancel")
         
-        # Clean up any remaining corrupt files
-        cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
+        # Clean up any remaining corrupt files (don't try to delete locked files)
+        try:
+            cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
+        except Exception as e:
+            logger.warning(f"Failed to clean up models after cancel: {e}")
         
         QMessageBox.information(
             self, 
