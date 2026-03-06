@@ -828,6 +828,59 @@ class AudioEnhancerThread(QThread):
             logger.info("Enhancer thread finished")
 
 # ========================================
+# MODEL VALIDATION UTILITY
+# ========================================
+def validate_model_file(model_path):
+    """
+    Validate if a model file is complete and not corrupted.
+    Returns True if file exists and size is reasonable (> 2.5 GB for large model).
+    """
+    if not os.path.exists(model_path):
+        return False
+    
+    try:
+        file_size = os.path.getsize(model_path)
+        # large-v1 model should be around 2.87 GB (2,880,000,000 bytes)
+        # Allow some margin for different versions
+        expected_size_min = 2.5 * 1024 * 1024 * 1024  # 2.5 GB
+        expected_size_max = 3.0 * 1024 * 1024 * 1024  # 3.0 GB
+        
+        if file_size < expected_size_min:
+            logger.warning(f"Model file too small: {file_size / (1024**3):.2f} GB")
+            return False
+        if file_size > expected_size_max:
+            logger.warning(f"Model file too large: {file_size / (1024**3):.2f} GB")
+            return False
+            
+        logger.info(f"Model file validated: {file_size / (1024**3):.2f} GB")
+        return True
+    except Exception as e:
+        logger.error(f"Error validating model file: {e}")
+        return False
+
+def cleanup_corrupt_models(models_dir):
+    """
+    Remove corrupt or incomplete model files.
+    """
+    if not os.path.exists(models_dir):
+        return
+    
+    model_files = [
+        os.path.join(models_dir, "large-v1.pt"),
+        os.path.join(models_dir, "large.pt"),
+        os.path.join(models_dir, "large-v1.pt.tmp")
+    ]
+    
+    for model_path in model_files:
+        if os.path.exists(model_path):
+            if not validate_model_file(model_path) or model_path.endswith('.tmp'):
+                try:
+                    os.remove(model_path)
+                    logger.info(f"Removed corrupt/incomplete model: {model_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to remove corrupt model {model_path}: {e}")
+
+# ========================================
 # CUSTOM DOWNLOAD HANDLER FOR WHISPER - FIXED VERSION WITH PROPER ATTRIBUTES
 # ========================================
 class CancellableWhisperDownloader:
@@ -839,6 +892,7 @@ class CancellableWhisperDownloader:
         self._current_download = None
         self._downloaded = 0  # Add this attribute
         self._total_size = 0   # Add this attribute
+        self._download_completed = False
         
     def cancel(self):
         """Cancel the download immediately"""
@@ -854,6 +908,7 @@ class CancellableWhisperDownloader:
         
         # Store download info for potential cancellation
         self._current_download = {'url': url, 'dst': dst}
+        self._download_completed = False
         
         try:
             import urllib.request
@@ -903,10 +958,19 @@ class CancellableWhisperDownloader:
                         os.remove(dst + '.tmp')
                     raise Exception("DOWNLOAD_CANCELED_BY_USER")
                 
+                # Validate downloaded file
+                if os.path.exists(dst + '.tmp'):
+                    file_size = os.path.getsize(dst + '.tmp')
+                    if file_size < self._total_size * 0.99:  # Less than 99% of expected size
+                        logger.warning(f"Downloaded file size mismatch: {file_size} vs {self._total_size}")
+                        os.remove(dst + '.tmp')
+                        raise Exception("DOWNLOAD_INCOMPLETE")
+                
                 # Move temp file to final destination
                 if os.path.exists(dst):
                     os.remove(dst)
                 os.rename(dst + '.tmp', dst)
+                self._download_completed = True
                 
         except Exception as e:
             # Clean up temp file on error
@@ -934,6 +998,7 @@ class CancellableWhisperDownloader:
         self._progress_callback = progress_callback
         self._downloaded = 0
         self._total_size = 0
+        self._download_completed = False
         
         try:
             import torch.hub
@@ -955,6 +1020,10 @@ class CancellableWhisperDownloader:
             
             logger.info(f"Starting download of {model_name} model to {download_root}")
             
+            # Clean up any existing corrupt files
+            model_path = os.path.join(download_root, f"{model_name}.pt")
+            cleanup_corrupt_models(download_root)
+            
             # Load model - this will use our patched download function
             model = whisper.load_model(
                 model_name, 
@@ -965,8 +1034,15 @@ class CancellableWhisperDownloader:
             # Check cancellation after loading
             if self._canceled:
                 raise Exception("DOWNLOAD_CANCELED_BY_USER")
+            
+            # Validate the downloaded model
+            if not validate_model_file(model_path):
+                logger.warning("Downloaded model validation failed")
+                if os.path.exists(model_path):
+                    os.remove(model_path)
+                raise Exception("Model validation failed")
                 
-            logger.info("Model downloaded successfully")
+            logger.info("Model downloaded and validated successfully")
             
             # Report 100% progress
             if progress_callback:
@@ -1013,6 +1089,7 @@ class ModelDownloadThread(QThread):
         super().__init__(parent)
         self.model_dir = model_dir
         self._is_canceled = False
+        self._download_started = False
         self._downloader = CancellableWhisperDownloader()
         logger.info(f"ModelDownloadThread initialized for {model_dir}")
 
@@ -1020,9 +1097,10 @@ class ModelDownloadThread(QThread):
         """
         Set cancellation flag and stop the download immediately.
         """
-        self._is_canceled = True
-        self._downloader.cancel()
-        logger.info("Model download cancellation requested - stopping download immediately")
+        if not self._is_canceled and self._download_started:
+            self._is_canceled = True
+            self._downloader.cancel()
+            logger.info("Model download cancellation requested - stopping download immediately")
 
     @pyqtSlot()
     def run(self):
@@ -1030,19 +1108,29 @@ class ModelDownloadThread(QThread):
         Download the model with proper progress tracking.
         """
         try:
+            # Clean up corrupt models before starting
+            cleanup_corrupt_models(self.model_dir)
+            
             self.progress.emit(5)
             logger.info("Starting model download process")
             
-            # Check if model already exists (check for both large-v1.pt and large.pt)
-            model_path = os.path.join(self.model_dir, "large-v1.pt")
-            if not os.path.exists(model_path):
-                model_path = os.path.join(self.model_dir, "large.pt")
+            # Check if model already exists and is valid
+            model_path_v1 = os.path.join(self.model_dir, "large-v1.pt")
+            model_path = os.path.join(self.model_dir, "large.pt")
             
-            if os.path.exists(model_path):
-                logger.info("Model already exists, skipping download")
+            # Check for valid existing model
+            if validate_model_file(model_path_v1):
+                logger.info("Valid large-v1 model already exists, skipping download")
                 self.progress.emit(100)
-                self.finished.emit(True, "Model already exists!")
+                self.finished.emit(True, "Model already exists and is valid!")
                 return
+            elif validate_model_file(model_path):
+                logger.info("Valid large model already exists, skipping download")
+                self.progress.emit(100)
+                self.finished.emit(True, "Model already exists and is valid!")
+                return
+            
+            self._download_started = True
             
             # Download with progress callback
             model = self._downloader.download_model(
@@ -1056,9 +1144,13 @@ class ModelDownloadThread(QThread):
                 self.canceled.emit()
                 return
             
-            logger.info("Model downloaded successfully")
-            self.progress.emit(100)
-            self.finished.emit(True, "Model large-v1 downloaded successfully!")
+            # Final validation
+            if validate_model_file(model_path_v1):
+                logger.info("Model downloaded and validated successfully")
+                self.progress.emit(100)
+                self.finished.emit(True, "Model large-v1 downloaded and validated successfully!")
+            else:
+                raise Exception("Downloaded model validation failed")
                 
         except Exception as dl_err:
             error_str = str(dl_err)
@@ -1079,6 +1171,8 @@ class ModelDownloadThread(QThread):
                 error_msg = f"Download error: {str(dl_err)}"
                 logger.error(f"Model thread error: {traceback.format_exc()}")
                 self.finished.emit(False, error_msg)
+        finally:
+            self._download_started = False
 
 # ========================================
 # MAIN APPLICATION WINDOW
@@ -1100,6 +1194,10 @@ class NotyCaptionWindow(QMainWindow):
             logger.info("App icon set")
 
         self.settings = load_settings()
+        
+        # Clean up corrupt models on startup
+        cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
+        
         self.apply_ui_scale()
         self.apply_theme()
 
@@ -1138,7 +1236,7 @@ class NotyCaptionWindow(QMainWindow):
         prog_lay = QVBoxLayout(self.progress_container)
 
         # Progress title
-        prog_title = QLabel("Downloading Whisper large Model")
+        prog_title = QLabel("Downloading Whisper large-v1 Model")
         prog_title.setStyleSheet("color: white; font-size: 18px; font-weight: bold; margin-bottom: 10px;")
         prog_title.setAlignment(Qt.AlignCenter)
         prog_lay.addWidget(prog_title)
@@ -1576,12 +1674,15 @@ class NotyCaptionWindow(QMainWindow):
             logger.info("Download button hidden in online mode")
             return
 
-        # Check for both large-v1.pt and large.pt (for backward compatibility)
-        model_path_v1 = os.path.join(self.settings["models_dir"], "large-v1.pt")
-        model_path = os.path.join(self.settings["models_dir"], "large.pt")
-        exists = os.path.exists(model_path_v1) or os.path.exists(model_path)
+        # Check for valid model files
+        model_dir = self.settings.get("models_dir", CURRENT_DIR)
+        model_path_v1 = os.path.join(model_dir, "large-v1.pt")
+        model_path = os.path.join(model_dir, "large.pt")
+        
+        # Validate existing models
+        exists = validate_model_file(model_path_v1) or validate_model_file(model_path)
         self.download_btn.setVisible(not exists)
-        logger.info(f"Model exists: {exists} → Button visible: {not exists}")
+        logger.info(f"Valid model exists: {exists} → Button visible: {not exists}")
 
     def closeEvent(self, event: QCloseEvent):
         """Handle app close: cleanup threads, files, Drive, save settings."""
@@ -1589,6 +1690,11 @@ class NotyCaptionWindow(QMainWindow):
         self.player.stop()
         self.player_timer.stop()
         self.online_handler.poll_timer.stop()
+
+        # Cancel any ongoing download
+        if self.model_download_thread and self.model_download_thread.isRunning():
+            self.model_download_thread.cancel()
+            self.model_download_thread.wait(2000)  # Wait up to 2 seconds for clean shutdown
 
         if self.audio_file and self.audio_file.endswith(".temp.wav") and os.path.exists(self.audio_file):
             try:
@@ -1606,6 +1712,9 @@ class NotyCaptionWindow(QMainWindow):
 
         if self.online_handler.service:
             self.online_handler.cleanup_drive()
+
+        # Clean up corrupt models on exit
+        cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
 
         self.settings["last_mode"] = self.mode
         save_settings(self.settings)
@@ -1678,6 +1787,10 @@ class NotyCaptionWindow(QMainWindow):
         try:
             model_dir = self.settings.get("models_dir", CURRENT_DIR)
             logger.info(f"Loading Whisper large-v1 from: {model_dir} (Auto GPU/CPU)")
+            
+            # Clean up corrupt models before loading
+            cleanup_corrupt_models(model_dir)
+            
             model = whisper.load_model("large-v1", download_root=model_dir)
             logger.info("Whisper model loaded successfully")
             return model
@@ -1932,6 +2045,9 @@ class NotyCaptionWindow(QMainWindow):
 
     def confirm_cancel_download(self):
         """Show confirmation dialog before canceling download."""
+        if not self.model_download_thread or not self.model_download_thread.isRunning():
+            return
+            
         reply = QMessageBox.question(
             self,
             "Confirm Cancel",
@@ -1949,24 +2065,24 @@ class NotyCaptionWindow(QMainWindow):
             if self.model_download_thread:
                 self.model_download_thread.cancel()
                 
-                # Wait a bit for cancellation to complete
-                QTimer.singleShot(500, self._check_cancel_complete)
+                # Don't force terminate - let it clean up naturally
+                QTimer.singleShot(100, self._check_cancel_complete)
             logger.info("User confirmed download cancellation")
 
     def _check_cancel_complete(self):
-        """Check if cancellation is complete and force if needed"""
+        """Check if cancellation is complete"""
         if self.model_download_thread and self.model_download_thread.isRunning():
-            logger.warning("Thread still running after cancel - forcing cleanup")
-            # Force terminate if still running after 500ms
-            self.model_download_thread.terminate()
-            self.model_download_thread.wait(1000)
+            # Still running, check again in a moment
+            QTimer.singleShot(100, self._check_cancel_complete)
+        else:
+            # Thread finished, ensure UI is updated
             self.on_model_download_canceled()
 
     def open_model_download_dialog(self):
         """Open dialog for model download options."""
         logger.info("Opening model download dialog")
         dlg = QDialog(self)
-        dlg.setWindowTitle("Whisper large Model Download")
+        dlg.setWindowTitle("Whisper large-v1 Model Download")
         dlg.setFixedSize(520, 340)
         lay = QVBoxLayout()
         dlg.setLayout(lay)
@@ -2012,16 +2128,19 @@ class NotyCaptionWindow(QMainWindow):
         selected = next(i for i, rb in enumerate(rbs) if rb.isChecked())
 
         if selected == 2:  # Link existing
-            file_path, _ = QFileDialog.getOpenFileName(self, "Select large.pt", "", "PyTorch Model (*.pt)")
-            if file_path and os.path.basename(file_path) == "large.pt":
-                model_dir = os.path.dirname(file_path)
-                self.settings["models_dir"] = model_dir
-                save_settings(self.settings)
-                self.update_download_button_visibility()
-                QMessageBox.information(self, "Success", "Model file linked successfully!")
-                logger.info(f"Model linked from: {model_dir}")
+            file_path, _ = QFileDialog.getOpenFileName(self, "Select large-v1.pt", "", "PyTorch Model (*.pt)")
+            if file_path and os.path.basename(file_path) == "large-v1.pt":
+                if validate_model_file(file_path):
+                    model_dir = os.path.dirname(file_path)
+                    self.settings["models_dir"] = model_dir
+                    save_settings(self.settings)
+                    self.update_download_button_visibility()
+                    QMessageBox.information(self, "Success", "Valid model file linked successfully!")
+                    logger.info(f"Valid model linked from: {model_dir}")
+                else:
+                    QMessageBox.warning(self, "Invalid File", "The selected model file appears to be corrupt or incomplete.")
             else:
-                QMessageBox.warning(self, "Invalid File", "Please select a file named exactly 'large.pt'")
+                QMessageBox.warning(self, "Invalid File", "Please select a file named exactly 'large-v1.pt'")
             return
 
         if selected == 1:  # Custom folder
@@ -2031,6 +2150,9 @@ class NotyCaptionWindow(QMainWindow):
                 return
         else:
             path = self.settings["models_dir"]
+
+        # Clean up any corrupt models in the target directory
+        cleanup_corrupt_models(path)
 
         self.settings["models_dir"] = path
         save_settings(self.settings)
@@ -2120,6 +2242,11 @@ class NotyCaptionWindow(QMainWindow):
     @pyqtSlot()
     def on_model_download_canceled(self):
         """Handle cancellation: hide overlay, re-enable buttons."""
+        # Ensure we only process once
+        if hasattr(self, '_cancel_processed') and self._cancel_processed:
+            return
+        self._cancel_processed = True
+        
         self.overlay.hide()
         # Re-enable buttons
         self.gen_btn.setEnabled(True)
@@ -2130,12 +2257,16 @@ class NotyCaptionWindow(QMainWindow):
         self.cancel_download_btn.setEnabled(False)
         logger.info("UI buttons re-enabled after cancel")
         
+        # Clean up any remaining corrupt files
+        cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
+        
         QMessageBox.information(
             self, 
             "Download Canceled", 
             "The model download has been canceled and the partial file has been deleted."
         )
         self.model_download_thread = None
+        self._cancel_processed = False
 
     def start_caption_generation(self):
         """Start caption generation workflow."""
