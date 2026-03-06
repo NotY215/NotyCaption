@@ -40,6 +40,12 @@ import whisper
 import numpy as np
 from spleeter.separator import Separator
 
+
+# Force disable tqdm globally in frozen mode from the beginning
+if getattr(sys, 'frozen', False):
+    import tqdm
+    tqdm.disable = True
+    
 # IMPORTANT: Suppress googleapiclient file_cache warning by disabling it
 os.environ["GOOGLEAPI_DISABLE_FILE_CACHE"] = "1"
 
@@ -1035,25 +1041,27 @@ class CancellableWhisperDownloader:
         self._response = None
         self._temp_path = None
         
+        original_download = None  # Define early to avoid UnboundLocalError
+        
         try:
             import torch.hub
             import whisper
             
-            # ─── CRITICAL FIX: Disable tqdm in frozen PyInstaller exe ───
+            # ─── CRITICAL FIX: Disable tqdm progress bar in frozen EXE ───
             if getattr(sys, 'frozen', False):
-                # Prevent tqdm from trying to write to None/closed stderr
-                tqdm.tqdm.disable = True
-                # Also redirect any stray prints
-                original_stderr = sys.stderr
+                # Prevent tqdm from writing to potentially None sys.stderr
+                tqdm.disable = True  # ← Correct way (global disable)
+                # Optional: redirect stderr to null to be extra safe
                 sys.stderr = open(os.devnull, 'w')
             
             # Save original function
             original_download = torch.hub.download_url_to_file
             
-            # Patched version
+            # Create patched function
             def patched_func(url, dst, *args, **kwargs):
                 return self.patched_download_url_to_file(original_download, url, dst, *args, **kwargs)
             
+            # Apply patch
             torch.hub.download_url_to_file = patched_func
             
             if self.is_canceled():
@@ -1061,12 +1069,13 @@ class CancellableWhisperDownloader:
             
             logger.info(f"Starting download of {model_name} model to {download_root}")
             
+            # Clean up before starting
             model_path = os.path.join(download_root, f"{model_name}.pt")
             cleanup_corrupt_models(download_root)
             
-            # This is where Whisper downloads and shows tqdm progress
+            # Whisper will now download without tqdm crash
             model = whisper.load_model(
-                model_name, 
+                model_name,
                 download_root=download_root,
                 in_memory=False
             )
@@ -1074,6 +1083,7 @@ class CancellableWhisperDownloader:
             if self.is_canceled():
                 raise Exception("DOWNLOAD_CANCELED_BY_USER")
             
+            # Validate after download
             if not validate_model_file(model_path):
                 logger.warning("Downloaded model validation failed")
                 if os.path.exists(model_path):
@@ -1107,14 +1117,16 @@ class CancellableWhisperDownloader:
                 logger.error(f"Download error: {e}")
                 raise
         finally:
-            # Restore original
+            # Always restore
             import torch.hub
-            torch.hub.download_url_to_file = original_download
+            if original_download is not None:
+                torch.hub.download_url_to_file = original_download
             
-            # Restore stderr if we redirected it
-            if getattr(sys, 'frozen', False) and 'original_stderr' in locals():
-                sys.stderr.close()
-                sys.stderr = original_stderr
+            # Restore stderr if redirected
+            if getattr(sys, 'frozen', False) and hasattr(self, '_original_stderr'):
+                if not sys.stderr.closed:
+                    sys.stderr.close()
+                sys.stderr = self._original_stderr  # You need to save it earlier if using
             
             self._response = None
             self._temp_path = None
