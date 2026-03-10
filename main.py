@@ -40,6 +40,9 @@ import whisper
 import numpy as np
 from spleeter.separator import Separator
 
+# Force charset_normalizer to use pure Python mode (disable mypyc)
+os.environ["CHARSET_NORMALIZER_USE_MYPYC"] = "0"
+
 # Force disable tqdm globally in frozen mode from the beginning
 if getattr(sys, 'frozen', False):
     import tqdm

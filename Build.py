@@ -1,9 +1,7 @@
 # build.py
 """
-Build script for NotyCaption Pro - With Spleeter fully bundled
-- Encrypts client.json → client.notycapz
-- Builds single-file EXE named NotyCaption.exe
-- Bundles client.notycapz + key + Spleeter + Whisper + moviepy dependencies
+Build script for NotyCaption Pro - FINAL with charset_normalizer fix
+Forces pure Python mode for charset_normalizer to avoid mypyc errors
 """
 
 import os
@@ -20,7 +18,7 @@ from cryptography.fernet import Fernet
 # ────────────────────────────────────────────────
 
 EXE_NAME        = "NotyCaption"
-MAIN_SCRIPT     = "main.py"                 # Your renamed app code
+MAIN_SCRIPT     = "main.py"
 ICON_FILE       = "App.ico"
 CLIENT_JSON_SRC = "client.json"
 ENCRYPTED_FILE  = "client.notycapz"
@@ -36,7 +34,7 @@ RELEASE_FOLDER = f"release_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 TEMP_FOLDERS = ["build", "dist", "__pycache__"]
 
-# PyInstaller command - optimized for Spleeter + Whisper + moviepy + Google
+# PyInstaller command - charset_normalizer fixed
 PYINSTALLER_CMD = [
     "pyinstaller",
     "--onefile",
@@ -52,23 +50,30 @@ PYINSTALLER_CMD = [
     "--add-data", f"{ENCRYPTED_FILE};.",
     "--add-data", f"{KEY_FILE_NAME};.",
 
-    # ─── Spleeter + TensorFlow + Dependencies ───
+    # Force charset_normalizer pure Python collection
+    "--collect-all", "charset_normalizer",
+    "--collect-submodules", "charset_normalizer",
+    "--hidden-import", "charset_normalizer",
+    "--hidden-import", "charset_normalizer.api",
+    "--hidden-import", "charset_normalizer.md",
+    "--hidden-import", "charset_normalizer.models",
+    "--hidden-import", "charset_normalizer.utils",
+    "--hidden-import", "charset_normalizer.legacy",
+    # Explicitly exclude compiled mypyc extensions
+    "--exclude-module", "charset_normalizer.md__mypyc",
+    "--exclude-module", "charset_normalizer.legacy__mypyc",
+    "--exclude-module", "charset_normalizer.clsid__mypyc",
+
+    # Spleeter + dependencies
     "--collect-all", "spleeter",
     "--collect-all", "tensorflow",
     "--collect-all", "numpy",
-    "--collect-all", "pandas",          # sometimes used indirectly
     "--collect-all", "scipy",
-
     "--hidden-import", "spleeter",
     "--hidden-import", "spleeter.separator",
-    "--hidden-import", "spleeter.model",
-    "--hidden-import", "spleeter.audio",
-    "--hidden-import", "spleeter.utils",
     "--hidden-import", "tensorflow",
-    "--hidden-import", "tensorflow.python.eager.context",
-    "--hidden-import", "numpy",
 
-    # Core dependencies (Whisper, moviepy, imageio, google, tqdm)
+    # Whisper / moviepy / imageio / google / tqdm
     "--collect-all", "imageio",
     "--collect-all", "imageio_ffmpeg",
     "--collect-all", "moviepy",
@@ -93,7 +98,7 @@ PYINSTALLER_CMD = [
     "--hidden-import", "google.oauth2.credentials",
     "--hidden-import", "google_auth_oauthlib.flow",
 
-    # Exclude unused heavy modules to reduce size
+    # Exclude unused heavy modules
     "--exclude-module", "tkinter",
     "--exclude-module", "matplotlib",
     "--exclude-module", "PIL",
@@ -112,7 +117,7 @@ def generate_or_load_key(key_path=KEY_FILE_NAME):
     key = Fernet.generate_key()
     with open(key_path, "wb") as f:
         f.write(key)
-    print(f"[KEY] Created fixed key → {key_path}  (SAVE THIS!)")
+    print(f"[KEY] Created → {key_path}")
     return key
 
 
@@ -138,13 +143,13 @@ def encrypt_client():
 
 
 # ────────────────────────────────────────────────
-# BUILD FLOW
+# BUILD STEPS
 # ────────────────────────────────────────────────
 
 def check_files():
     missing = [f for f in REQUIRED_FILES if not os.path.isfile(f)]
     if missing:
-        print("Missing files:")
+        print("Missing:")
         for m in missing:
             print(f"  • {m}")
         sys.exit(1)
@@ -153,7 +158,7 @@ def check_files():
 def clean_old():
     for d in TEMP_FOLDERS:
         if os.path.exists(d):
-            print(f"[CLEAN] Removing {d}/")
+            print(f"[CLEAN] {d}/")
             try:
                 shutil.rmtree(d, ignore_errors=True)
             except:
@@ -162,7 +167,7 @@ def clean_old():
 
 def run_build():
     print("\n" + "═"*90)
-    print(f" BUILDING {EXE_NAME}.exe (with Spleeter bundled) ".center(90))
+    print(f" BUILDING {EXE_NAME}.exe (charset_normalizer pure Python) ".center(90))
     print("═"*90 + "\n")
 
     print("Command:")
@@ -179,14 +184,12 @@ def run_build():
 
 def copy_release():
     os.makedirs(RELEASE_FOLDER, exist_ok=True)
-
     files = [
         (f"dist/{EXE_NAME}.exe",    f"{RELEASE_FOLDER}/{EXE_NAME}.exe"),
         (ENCRYPTED_FILE,            f"{RELEASE_FOLDER}/{ENCRYPTED_FILE}"),
         (KEY_FILE_NAME,             f"{RELEASE_FOLDER}/{KEY_FILE_NAME}"),
         (ICON_FILE,                 f"{RELEASE_FOLDER}/{ICON_FILE}"),
     ]
-
     for src, dst in files:
         if os.path.exists(src):
             shutil.copy2(src, dst)
@@ -196,7 +199,7 @@ def copy_release():
 
 
 def cleanup():
-    print("\nCleaning temp folders...")
+    print("\nCleaning...")
     for d in TEMP_FOLDERS:
         if os.path.exists(d):
             try:
@@ -208,16 +211,15 @@ def cleanup():
 
 def summary():
     print("\n" + "═"*100)
-    print(" BUILD COMPLETE - Spleeter, Whisper, Secrets & Key BUNDLED ".center(100, "═"))
+    print(" BUILD FINISHED - charset_normalizer mypyc bypassed ".center(100, "═"))
     print("═"*100)
-    print(f"Release folder : {RELEASE_FOLDER}")
-    print(f"EXE            : {RELEASE_FOLDER}/{EXE_NAME}.exe")
-    print(f"Key file       : {RELEASE_FOLDER}/{KEY_FILE_NAME}")
-    print("\nRun the EXE → Spleeter enhancement should work without import errors.\n")
+    print(f"Folder: {RELEASE_FOLDER}")
+    print(f"EXE: {RELEASE_FOLDER}/{EXE_NAME}.exe")
+    print("\nNow run the EXE → Spleeter should work without mypyc import error.\n")
 
 
 def main():
-    print("NotyCaption Build Tool - Spleeter Included\n")
+    print("NotyCaption Build - charset_normalizer fixed\n")
     check_files()
     encrypt_client()
     clean_old()
@@ -234,5 +236,5 @@ if __name__ == "__main__":
         print("\nAborted.")
         sys.exit(1)
     except Exception as e:
-        print(f"\nBuild failed: {type(e).__name__}: {e}")
+        print(f"Build failed: {e}")
         sys.exit(1)
