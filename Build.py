@@ -1,7 +1,7 @@
 # build.py
 """
-Build script for NotyCaption Pro - FINAL with charset_normalizer fix
-Forces pure Python mode for charset_normalizer to avoid mypyc errors
+FINAL Build script for NotyCaption Pro - charset_normalizer mypyc FIXED
+Builds NotyCaption.exe with Spleeter working (no 81d243bd...__mypyc error)
 """
 
 import os
@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet
 # ────────────────────────────────────────────────
 
 EXE_NAME        = "NotyCaption"
-MAIN_SCRIPT     = "main.py"
+MAIN_SCRIPT     = "main.py"                 # Your app must be named main.py
 ICON_FILE       = "App.ico"
 CLIENT_JSON_SRC = "client.json"
 ENCRYPTED_FILE  = "client.notycapz"
@@ -34,7 +34,7 @@ RELEASE_FOLDER = f"release_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 TEMP_FOLDERS = ["build", "dist", "__pycache__"]
 
-# PyInstaller command - charset_normalizer fixed
+# PyInstaller command - charset_normalizer pure Python + Spleeter fixed
 PYINSTALLER_CMD = [
     "pyinstaller",
     "--onefile",
@@ -50,7 +50,7 @@ PYINSTALLER_CMD = [
     "--add-data", f"{ENCRYPTED_FILE};.",
     "--add-data", f"{KEY_FILE_NAME};.",
 
-    # Force charset_normalizer pure Python collection
+    # ─── CRITICAL: charset_normalizer pure Python mode (bypass mypyc) ───
     "--collect-all", "charset_normalizer",
     "--collect-submodules", "charset_normalizer",
     "--hidden-import", "charset_normalizer",
@@ -59,18 +59,25 @@ PYINSTALLER_CMD = [
     "--hidden-import", "charset_normalizer.models",
     "--hidden-import", "charset_normalizer.utils",
     "--hidden-import", "charset_normalizer.legacy",
-    # Explicitly exclude compiled mypyc extensions
+
+    # Explicitly exclude ALL mypyc compiled extensions
     "--exclude-module", "charset_normalizer.md__mypyc",
     "--exclude-module", "charset_normalizer.legacy__mypyc",
     "--exclude-module", "charset_normalizer.clsid__mypyc",
+    "--exclude-module", "charset_normalizer.api__mypyc",
+    "--exclude-module", "charset_normalizer.utils__mypyc",
+    "--exclude-module", "charset_normalizer.models__mypyc",
 
-    # Spleeter + dependencies
+    # Spleeter + TensorFlow + core deps
     "--collect-all", "spleeter",
     "--collect-all", "tensorflow",
     "--collect-all", "numpy",
     "--collect-all", "scipy",
+    "--collect-all", "pandas",          # sometimes pulled indirectly
     "--hidden-import", "spleeter",
     "--hidden-import", "spleeter.separator",
+    "--hidden-import", "spleeter.model",
+    "--hidden-import", "spleeter.audio",
     "--hidden-import", "tensorflow",
 
     # Whisper / moviepy / imageio / google / tqdm
@@ -98,10 +105,11 @@ PYINSTALLER_CMD = [
     "--hidden-import", "google.oauth2.credentials",
     "--hidden-import", "google_auth_oauthlib.flow",
 
-    # Exclude unused heavy modules
+    # Exclude unused heavy modules to keep EXE smaller
     "--exclude-module", "tkinter",
     "--exclude-module", "matplotlib",
     "--exclude-module", "PIL",
+    "--exclude-module", "pygame",
 
     MAIN_SCRIPT
 ]
@@ -117,13 +125,13 @@ def generate_or_load_key(key_path=KEY_FILE_NAME):
     key = Fernet.generate_key()
     with open(key_path, "wb") as f:
         f.write(key)
-    print(f"[KEY] Created → {key_path}")
+    print(f"[KEY] Created fixed key → {key_path}")
     return key
 
 
 def encrypt_client():
     if not os.path.isfile(CLIENT_JSON_SRC):
-        print(f"[ERROR] Missing {CLIENT_JSON_SRC}")
+        print(f"[ERROR] {CLIENT_JSON_SRC} not found!")
         sys.exit(1)
 
     key = generate_or_load_key()
@@ -143,13 +151,13 @@ def encrypt_client():
 
 
 # ────────────────────────────────────────────────
-# BUILD STEPS
+# BUILD FLOW
 # ────────────────────────────────────────────────
 
 def check_files():
     missing = [f for f in REQUIRED_FILES if not os.path.isfile(f)]
     if missing:
-        print("Missing:")
+        print("Missing files:")
         for m in missing:
             print(f"  • {m}")
         sys.exit(1)
@@ -158,16 +166,16 @@ def check_files():
 def clean_old():
     for d in TEMP_FOLDERS:
         if os.path.exists(d):
-            print(f"[CLEAN] {d}/")
+            print(f"[CLEAN] Removing {d}/")
             try:
                 shutil.rmtree(d, ignore_errors=True)
-            except:
-                pass
+            except Exception as e:
+                print(f"  Could not remove {d} → {e}")
 
 
 def run_build():
     print("\n" + "═"*90)
-    print(f" BUILDING {EXE_NAME}.exe (charset_normalizer pure Python) ".center(90))
+    print(f" BUILDING {EXE_NAME}.exe - charset_normalizer PURE PYTHON MODE ".center(90))
     print("═"*90 + "\n")
 
     print("Command:")
@@ -176,65 +184,76 @@ def run_build():
 
     try:
         subprocess.run(PYINSTALLER_CMD, check=True)
+        print("\nPyInstaller finished successfully.")
     except subprocess.CalledProcessError as e:
         print("\nPyInstaller FAILED!")
-        print(e)
+        print(e.stdout.decode(errors="replace"))
+        if e.stderr:
+            print(e.stderr.decode(errors="replace"))
         sys.exit(1)
 
 
 def copy_release():
     os.makedirs(RELEASE_FOLDER, exist_ok=True)
+
     files = [
         (f"dist/{EXE_NAME}.exe",    f"{RELEASE_FOLDER}/{EXE_NAME}.exe"),
         (ENCRYPTED_FILE,            f"{RELEASE_FOLDER}/{ENCRYPTED_FILE}"),
         (KEY_FILE_NAME,             f"{RELEASE_FOLDER}/{KEY_FILE_NAME}"),
         (ICON_FILE,                 f"{RELEASE_FOLDER}/{ICON_FILE}"),
     ]
+
     for src, dst in files:
         if os.path.exists(src):
             shutil.copy2(src, dst)
             print(f"[COPY] {dst}")
         else:
-            print(f"[WARN] {src} missing")
+            print(f"[WARN] Source not found: {src}")
 
 
 def cleanup():
-    print("\nCleaning...")
-    for d in TEMP_FOLDERS:
-        if os.path.exists(d):
+    print("\nCleaning temporary folders...")
+    for folder in TEMP_FOLDERS:
+        if os.path.exists(folder):
             try:
-                shutil.rmtree(d)
-                print(f"[RM] {d}/")
-            except:
-                print(f"[FAIL] Could not delete {d}")
+                shutil.rmtree(folder)
+                print(f"[RM] {folder}/ removed")
+            except Exception as e:
+                print(f"[FAIL] Could not delete {folder} → {e}")
 
 
-def summary():
+def print_summary():
     print("\n" + "═"*100)
-    print(" BUILD FINISHED - charset_normalizer mypyc bypassed ".center(100, "═"))
+    print(" BUILD FINISHED SUCCESSFULLY ".center(100, "═"))
     print("═"*100)
-    print(f"Folder: {RELEASE_FOLDER}")
-    print(f"EXE: {RELEASE_FOLDER}/{EXE_NAME}.exe")
-    print("\nNow run the EXE → Spleeter should work without mypyc import error.\n")
+    print(f"Release folder : {RELEASE_FOLDER}")
+    print(f"Executable     : {RELEASE_FOLDER}/{EXE_NAME}.exe")
+    print(f"Key file       : {RELEASE_FOLDER}/{KEY_FILE_NAME}   ← used for decryption")
+    print("\nImportant:")
+    print("Make sure you added this line at the TOP of main.py (after imports):")
+    print("    os.environ[\"CHARSET_NORMALIZER_USE_MYPYC\"] = \"0\"")
+    print("\nNow run NotyCaption.exe → Spleeter should work without mypyc errors.\n")
 
 
 def main():
-    print("NotyCaption Build - charset_normalizer fixed\n")
+    print("NotyCaption Build Tool - charset_normalizer FIXED\n")
+    print(f"Started: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n")
+
     check_files()
     encrypt_client()
     clean_old()
     run_build()
     copy_release()
     cleanup()
-    summary()
+    print_summary()
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\nAborted.")
+        print("\nBuild aborted by user.")
         sys.exit(1)
     except Exception as e:
-        print(f"Build failed: {e}")
+        print(f"\nBuild crashed:\n{type(e).__name__}: {e}")
         sys.exit(1)

@@ -39,9 +39,11 @@ import webbrowser
 import whisper
 import numpy as np
 from spleeter.separator import Separator
+import warnings
 
 # Force charset_normalizer to use pure Python mode (disable mypyc)
 os.environ["CHARSET_NORMALIZER_USE_MYPYC"] = "0"
+
 
 # Force disable tqdm globally in frozen mode from the beginning
 if getattr(sys, 'frozen', False):
@@ -50,11 +52,15 @@ if getattr(sys, 'frozen', False):
 
 # IMPORTANT: Suppress googleapiclient file_cache warning by disabling it
 os.environ["GOOGLEAPI_DISABLE_FILE_CACHE"] = "1"
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="googleapiclient.discovery_cache")
 
 # Suppress TensorFlow CUDA warnings (common on CPU-only systems)
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'          # 3 = ERROR only (hides all warnings)
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'         # Disable oneDNN optimizations (sometimes causes shutdown issues)
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # If you ever use GPU later
 import tensorflow as tf
 tf.get_logger().setLevel('ERROR')
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
 # ========================================
 # LOGGING SETUP - Secure & Persistent (MOVED TO TOP)
@@ -823,7 +829,6 @@ class AudioEnhancerThread(QThread):
     def run(self):
         """
         Execute vocal separation in thread.
-        Simulate progress during separation.
         """
         try:
             self.progress.emit(10)
@@ -841,20 +846,27 @@ class AudioEnhancerThread(QThread):
             self.progress.emit(80)
             logger.info("Separation phase complete")
 
-            vocals_path = os.path.join(output_dir, 'vocals.wav')
+            # Spleeter usually creates: output_dir / base_name / vocals.wav
+            vocals_path = os.path.join(output_dir, base_name, 'vocals.wav')
+
             if not os.path.exists(vocals_path):
-                raise FileNotFoundError(f"Vocals file not generated at {vocals_path}")
+                # Fallback: sometimes it's directly in output_dir
+                vocals_path = os.path.join(output_dir, 'vocals.wav')
+                if not os.path.exists(vocals_path):
+                    raise FileNotFoundError(f"Vocals file not generated at {vocals_path}")
 
             self.progress.emit(95)
-            logger.info("Spleeter separation completed (GPU/CPU auto)")
+            logger.info(f"Spleeter completed → vocals: {vocals_path}")
             self.finished.emit(vocals_path, True)
+
         except Exception as enhance_err:
-            error_msg = f"Spleeter error: {str(enhance_err)}"
+            error_msg = f"Spleeter failed: {str(enhance_err)}"
             logger.error(f"Spleeter thread error: {traceback.format_exc()}")
             self.error.emit(error_msg)
+        
         finally:
-            self.progress.emit(100)
-            logger.info("Enhancer thread finished")
+            self.progress.emit(100)  # Always reach 100%
+            logger.info("Enhancer thread finished (finally block)")
 
 # ========================================
 # MODEL VALIDATION UTILITY
@@ -1385,7 +1397,7 @@ class NotyCaptionWindow(QMainWindow):
                 color: #999999;
             }
         """)
-        self.cancel_download_btn.clicked.connect(self.confirm_cancel_download)
+        self.cancel_download_btn.clicked.connect(self.cancel_current_operation)
         self.cancel_download_btn.setEnabled(False)
         prog_lay.addWidget(self.cancel_download_btn, alignment=Qt.AlignCenter)
 
@@ -1739,6 +1751,98 @@ class NotyCaptionWindow(QMainWindow):
             logger.info("Dark theme applied")
         logger.info(f"Theme applied: {theme}")
 
+    def freeze_ui(self, freeze=True, message="Processing... Please wait or cancel"):
+        """Freeze/unfreeze UI + show custom message"""
+        widgets_to_disable = [
+            self.import_btn,
+            self.enhance_btn,
+            self.gen_btn,
+            self.play_btn,
+            self.edit_btn,
+            self.download_btn,
+            self.login_button,
+            self.mode_combo,
+            self.lang_combo,
+            self.words_spin,
+            self.format_combo,
+            self.out_folder_edit,
+        ]
+
+        for w in widgets_to_disable:
+            if hasattr(w, 'setEnabled'):
+                w.setEnabled(not freeze)
+
+        self.timeline.setEnabled(not freeze)
+
+        if freeze:
+            self.overlay.show()
+            self.overlay.raise_()
+            self.statusBar().showMessage(message, 0)  # Show custom message
+        else:
+            self.overlay.hide()
+            self.statusBar().clearMessage()
+
+
+    def show_cancel_only(self, show=True):
+        """Make sure only cancel button is interactive on overlay"""
+        self.cancel_download_btn.setEnabled(show)
+
+    def cancel_current_operation(self):
+        """Stop whatever long operation is currently running"""
+        logger.info("Cancel button pressed - stopping current operation")
+
+        stopped = False
+
+        # Stop Spleeter enhancement if running
+        if hasattr(self, 'enhancer_thread') and self.enhancer_thread and self.enhancer_thread.isRunning():
+            logger.info("Canceling Spleeter enhancement...")
+            self.enhancer_thread.terminate()  # Force stop the thread
+            self.enhancer_thread.wait(2000)   # Wait up to 2 seconds
+            self.enhancer_thread = None
+            self.enhance_btn.setEnabled(True)
+            stopped = True
+
+        # Stop model download if running
+        if hasattr(self, 'model_download_thread') and self.model_download_thread and self.model_download_thread.isRunning():
+            logger.info("Canceling model download...")
+            self.model_download_thread.cancel()
+            # Call existing handler to clean up UI
+            self.on_model_download_canceled()
+            stopped = True
+
+        # Add here later if you have a generation thread
+
+        # Always unfreeze UI and clear status
+        self.freeze_ui(False)
+        
+        if stopped:
+            self.statusBar().showMessage("Operation canceled by user", 5000)
+        else:
+            self.statusBar().showMessage("Nothing to cancel", 3000)
+
+        # Optional: Ask to confirm if you want, but for now keep it simple
+
+        def cancel_current_operation(self):
+            reply = QMessageBox.question(
+                self,
+                "Cancel Operation",
+                "Are you sure you want to cancel the current operation?\nProgress will be lost.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+            
+            # Cancel the download immediately
+            if self.model_download_thread:
+                self.model_download_thread.cancel()
+                
+                # Force UI update immediately
+                self.overlay.hide()
+                self.on_model_download_canceled()
+                
+            logger.info("User confirmed download cancellation")
+
     def open_settings_dialog(self):
         """Open and manage settings dialog."""
         logger.info("Opening settings dialog")
@@ -1815,6 +1919,16 @@ class NotyCaptionWindow(QMainWindow):
 
         if self.online_handler.service:
             self.online_handler.cleanup_drive()
+        
+        # Force TensorFlow cleanup before exit
+        try:
+            tf.keras.backend.clear_session()
+            del tf  # Try to release TF
+        except:
+            pass
+
+        logger.info("=== NotyCaption Secure Shutdown ===")
+        event.accept()
 
         # Clean up corrupt models on exit (only if not locked)
         try:
@@ -2104,7 +2218,6 @@ class NotyCaptionWindow(QMainWindow):
             logger.info(f"Output folder set: {d}")
 
     def enhance_audio_vocals(self):
-        """Start vocal enhancement thread."""
         if not self.audio_file or not os.path.exists(self.audio_file):
             QMessageBox.warning(self, "No Audio", "Import media first.")
             logger.warning("Enhance clicked without audio")
@@ -2112,6 +2225,8 @@ class NotyCaptionWindow(QMainWindow):
 
         logger.info("Starting vocal enhancement...")
         self.enhance_btn.setEnabled(False)
+        self.freeze_ui(True, "Enhancing vocals with Spleeter... (this may take a while)")  # ← Custom message
+
         temp_dir = self.settings.get("temp_dir", tempfile.gettempdir())
         self.enhancer_thread = AudioEnhancerThread(self.audio_file, temp_dir, self)
         self.enhancer_thread.progress.connect(self.prog_main.setValue)
@@ -2122,7 +2237,9 @@ class NotyCaptionWindow(QMainWindow):
 
     @pyqtSlot(str, bool)
     def on_enhance_finished(self, vocals_path, success):
-        """Handle enhancement completion."""
+        self.freeze_ui(False)  # ← UNFREEZE
+        self.statusBar().clearMessage()
+
         if success:
             base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
             final_name = f"{base}_enhanced_vocals.wav"
@@ -2135,47 +2252,23 @@ class NotyCaptionWindow(QMainWindow):
                 logger.info(f"Enhanced audio saved: {final_path}")
                 QMessageBox.information(self, "Enhancement Complete", f"Vocals-only audio created:\n{final_path}")
             except Exception as move_err:
-                logger.error(f"Move enhanced file failed: {move_err}")
+                logger.error(f"Move failed: {move_err}")
                 QMessageBox.warning(self, "Save Error", str(move_err))
+        else:
+            logger.warning("Enhancement failed")
+
         self.enhance_btn.setEnabled(True)
         self.enhancer_thread = None
-        logger.info("Enhancer thread finished")
+
 
     @pyqtSlot(str)
     def on_enhance_error(self, error_msg):
-        """Handle enhancement errors."""
+        self.freeze_ui(False)  # ← UNFREEZE
+        self.statusBar().clearMessage()
         logger.error(f"Enhancement error: {error_msg}")
         QMessageBox.critical(self, "Enhancement Failed", error_msg)
         self.enhance_btn.setEnabled(True)
         self.enhancer_thread = None
-
-    def confirm_cancel_download(self):
-        """Show confirmation dialog before canceling download."""
-        if self._closing or not self.model_download_thread or not self.model_download_thread.is_downloading():
-            return
-            
-        reply = QMessageBox.question(
-            self,
-            "Confirm Cancel",
-            "Are you sure you want to cancel the download?\n\nThe partially downloaded file will be deleted permanently.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        
-        if reply == QMessageBox.Yes:
-            self.cancel_download_btn.setEnabled(False)
-            self.download_prog.setFormat("Canceling...")
-            self.prog_info.setText("Canceling download and cleaning up...")
-            
-            # Cancel the download immediately
-            if self.model_download_thread:
-                self.model_download_thread.cancel()
-                
-                # Force UI update immediately
-                self.overlay.hide()
-                self.on_model_download_canceled()
-                
-            logger.info("User confirmed download cancellation")
 
     def _check_cancel_complete(self):
         """Check if cancellation is complete"""
@@ -2268,32 +2361,32 @@ class NotyCaptionWindow(QMainWindow):
         else:
             path = self.settings["models_dir"]
 
-        # Clean up any corrupt models in the target directory
         cleanup_corrupt_models(path)
 
         self.settings["models_dir"] = path
         save_settings(self.settings)
         self.update_download_button_visibility()
 
-        # Show overlay with full coverage
+        # ─── NEW: FREEZE UI BEFORE STARTING DOWNLOAD ───
+        self.freeze_ui(True, "Downloading Whisper large-v1 model... (5–30 min)")  # ← Updated with custom message
+
+        # Show overlay with cancel button only
         self.overlay.setGeometry(0, 0, self.central_widget.width(), self.central_widget.height())
         self.overlay.raise_()
         self.overlay.show()
         
-        # Update progress info
         self.download_prog.setValue(0)
         self.download_prog.setFormat("%p%")
         self.prog_info.setText("Starting download...")
         self.cancel_download_btn.setEnabled(True)
         self._cancel_processed = False
 
-        # Disable other buttons
+        # Disable other buttons (already done by freeze_ui, but keeping for clarity)
         self.gen_btn.setEnabled(False)
         self.import_btn.setEnabled(False)
         self.enhance_btn.setEnabled(False)
         self.play_btn.setEnabled(False)
         self.edit_btn.setEnabled(False)
-        logger.info("UI buttons disabled during download")
 
         self.model_download_thread = ModelDownloadThread(path, self)
         self.model_download_thread.progress.connect(self.on_download_progress)
@@ -2340,6 +2433,9 @@ class NotyCaptionWindow(QMainWindow):
 
     @pyqtSlot(bool, str)
     def on_model_download_finished(self, success, message):
+
+        self.freeze_ui(False)
+        self.statusBar().clearMessage()
         """Handle download completion."""
         if self._closing:
             return
@@ -2366,6 +2462,8 @@ class NotyCaptionWindow(QMainWindow):
 
     @pyqtSlot()
     def on_model_download_canceled(self):
+        self.freeze_ui(False)
+        self.statusBar().clearMessage()
         """Handle cancellation: hide overlay, re-enable buttons."""
         # Ensure we only process once
         if self._closing or self._cancel_processed:
@@ -2397,7 +2495,6 @@ class NotyCaptionWindow(QMainWindow):
         self._cancel_processed = False
 
     def start_caption_generation(self):
-        """Start caption generation workflow."""
         if self.is_generating:
             QMessageBox.warning(self, "In Progress", "Generation already running.")
             logger.warning("Generation attempted while in progress")
@@ -2410,6 +2507,10 @@ class NotyCaptionWindow(QMainWindow):
 
         self.is_generating = True
         self.gen_btn.setEnabled(False)
+
+        # Freeze with custom message
+        self.freeze_ui(True, "Generating captions... Please wait or cancel")
+
         self.prog_main.setValue(0)
         self.prog_frame.setValue(0)
         logger.info("=== Secure Caption Generation Started ===")
@@ -2430,6 +2531,8 @@ class NotyCaptionWindow(QMainWindow):
         self.proceed_to_transcription(enhanced_path)
 
     def on_auto_enhance_done(self, vocals_path, success):
+        self.statusBar().clearMessage()
+        self.gen_btn.setEnabled(True)
         """Handle auto-enhance for generation."""
         if success:
             enhanced_path = vocals_path
@@ -2449,6 +2552,9 @@ class NotyCaptionWindow(QMainWindow):
         self.proceed_to_transcription(enhanced_path)
 
     def on_auto_enhance_error(self, error):
+
+        self.statusBar().clearMessage()
+        self.gen_btn.setEnabled(True)
         """Handle auto-enhance error for generation."""
         logger.error(f"Auto-enhance error: {error}")
         QMessageBox.warning(self, "Auto-Enhance Failed", error)
@@ -2571,6 +2677,8 @@ class NotyCaptionWindow(QMainWindow):
         finally:
             self.is_generating = False
             self.gen_btn.setEnabled(True)
+            self.freeze_ui(False)               
+            self.statusBar().clearMessage()     
 
     def save_subtitles_to_file(self, subtitles, fmt, out_path):
         """Save subtitles to SRT or ASS file."""
