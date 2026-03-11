@@ -24,7 +24,7 @@ from PyQt5.QtWidgets import (
     QFrame, QGraphicsOpacityEffect, QStackedWidget, QStatusBar
 )
 from PyQt5.QtGui import QIcon, QColor, QTextCharFormat, QTextCursor, QFont, QPalette, QCloseEvent, QPixmap, QBrush, QLinearGradient
-from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal, QThread, pyqtSlot, QPropertyAnimation, QEasingCurve
+from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal, QThread, pyqtSlot, QPropertyAnimation, QEasingCurve, QProcess
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from moviepy.editor import VideoFileClip, AudioFileClip
 import pysrt
@@ -39,6 +39,32 @@ import whisper
 import numpy as np
 from spleeter.separator import Separator
 import warnings
+import platform
+
+# Try to import optional browser tracking modules with fallback
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    logger = logging.getLogger("NotyCaption")
+    logger.warning("psutil not installed - browser tab tracking disabled")
+
+# Windows-specific imports
+IS_WINDOWS = platform.system() == "Windows"
+if IS_WINDOWS:
+    try:
+        import win32gui
+        import win32process
+        import win32con
+        WIN32_AVAILABLE = True
+    except ImportError:
+        WIN32_AVAILABLE = False
+        logger = logging.getLogger("NotyCaption")
+        logger.warning("pywin32 not installed - browser tab tracking disabled")
+else:
+    WIN32_AVAILABLE = False
+    logger.info(f"Running on {platform.system()} - browser tab tracking will use psutil only")
 
 # Force charset_normalizer to pure Python (no mypyc crash in frozen exe)
 os.environ["CHARSET_NORMALIZER_USE_MYPYC"] = "0"
@@ -93,6 +119,7 @@ def setup_logging():
     logger.info(f"Executable path: {sys.executable if getattr(sys, 'frozen', False) else 'dev mode'}")
     logger.info(f"Client mode: {'EXE (encrypted)' if os.path.exists(os.path.join(CURRENT_DIR, 'client.notycapz')) else 'Dev (plain)'}")
     logger.info(f"CUDA available: {tf.test.is_built_with_cuda()} (Auto-fallback to CPU if no GPU)")
+    logger.info(f"Browser tracking available: psutil={PSUTIL_AVAILABLE}, win32={WIN32_AVAILABLE}, OS={platform.system()}")
     return logger
 
 logger = setup_logging()
@@ -375,6 +402,148 @@ class SettingsDialog(QDialog):
         logger.info("Settings applied and dialog closed")
 
 # ========================================
+# BROWSER TAB TRACKER (with cross-platform support)
+# ========================================
+class BrowserTabTracker:
+    """Tracks browser tabs opened by the application with cross-platform support"""
+    
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._tabs = {}  # url -> process_info
+        self._check_timer = None
+        self._available = PSUTIL_AVAILABLE  # psutil is enough for basic tracking
+        if not self._available:
+            logger.warning("Browser tab tracking disabled - missing psutil. Install with: pip install psutil")
+        else:
+            logger.info(f"BrowserTabTracker initialized with psutil (OS: {platform.system()})")
+        
+    def register_tab(self, url, max_attempts=15):
+        """Register a browser tab with its process info, retrying multiple times"""
+        if not self._available:
+            logger.info(f"Tab tracking disabled, skipping registration for {url}")
+            return False
+            
+        with self._lock:
+            for attempt in range(max_attempts):
+                try:
+                    # Find browser process that opened this tab
+                    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                        try:
+                            proc_name = proc.info['name'].lower() if proc.info['name'] else ''
+                            cmdline = ' '.join(proc.info['cmdline']).lower() if proc.info['cmdline'] else ''
+                            
+                            # Check if this is a browser process
+                            if any(browser in proc_name or browser in cmdline 
+                                   for browser in ['chrome', 'firefox', 'edge', 'opera', 'brave', 'safari']):
+                                
+                                # Check if this process opened our URL
+                                if url.lower() in cmdline:
+                                    self._tabs[url] = {
+                                        'pid': proc.info['pid'],
+                                        'name': proc.info['name'],
+                                        'cmdline': proc.info['cmdline'],
+                                        'timestamp': time.time()
+                                    }
+                                    logger.info(f"Registered tab for {url} with PID {proc.info['pid']} (attempt {attempt+1})")
+                                    return True
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            continue
+                    
+                    # If not found, wait and retry with increasing delay
+                    if attempt < max_attempts - 1:
+                        delay = min(1 * (attempt + 1), 3)  # Progressive delay up to 3 seconds
+                        time.sleep(delay)
+                        
+                except Exception as e:
+                    logger.error(f"Error registering tab (attempt {attempt+1}): {e}")
+                    if attempt < max_attempts - 1:
+                        time.sleep(2)
+                    else:
+                        return False
+            
+            logger.warning(f"Could not find browser process for {url} after {max_attempts} attempts")
+            return False
+    
+    def is_tab_open(self, url):
+        """Check if the browser tab is still open"""
+        if not self._available:
+            # If tracking disabled, assume tab is open
+            return True
+            
+        with self._lock:
+            if url not in self._tabs:
+                return False
+                
+            tab_info = self._tabs[url]
+            try:
+                # Check if process still exists
+                proc = psutil.Process(tab_info['pid'])
+                
+                # Check if process is still running
+                if proc.is_running():
+                    # On Windows, we can do more detailed checking with win32 if available
+                    if IS_WINDOWS and WIN32_AVAILABLE:
+                        try:
+                            # Try to get window handles for this process
+                            def enum_windows_callback(hwnd, windows):
+                                if win32process.GetWindowThreadProcessId(hwnd)[1] == tab_info['pid']:
+                                    windows.append(hwnd)
+                                return True
+                            
+                            windows = []
+                            win32gui.EnumWindows(enum_windows_callback, windows)
+                            
+                            if windows:
+                                # Process has windows, likely still running
+                                return True
+                            else:
+                                # Process has no windows, might be background
+                                # Check command line as fallback
+                                cmdline = ' '.join(proc.cmdline()).lower()
+                                if url.lower() in cmdline:
+                                    return True
+                        except:
+                            # Fall back to cmdline check
+                            cmdline = ' '.join(proc.cmdline()).lower()
+                            return url.lower() in cmdline
+                    else:
+                        # On non-Windows, just check if process exists and URL in cmdline
+                        cmdline = ' '.join(proc.cmdline()).lower()
+                        return url.lower() in cmdline
+                else:
+                    logger.info(f"Browser process {tab_info['pid']} no longer running")
+                    return False
+                    
+            except psutil.NoSuchProcess:
+                logger.info(f"Browser process {tab_info['pid']} not found")
+                return False
+            except Exception as e:
+                logger.error(f"Error checking tab status: {e}")
+                return False
+    
+    def unregister_tab(self, url):
+        """Remove tab from tracking"""
+        with self._lock:
+            if url in self._tabs:
+                del self._tabs[url]
+                logger.info(f"Unregistered tab for {url}")
+    
+    def get_open_tabs(self):
+        """Get list of currently open tabs"""
+        if not self._available:
+            return []
+            
+        with self._lock:
+            open_tabs = []
+            for url in list(self._tabs.keys()):
+                if self.is_tab_open(url):
+                    open_tabs.append(url)
+                else:
+                    # Clean up dead tabs
+                    del self._tabs[url]
+            return open_tabs
+
+# ========================================
 # ONLINE MODE HANDLER
 # ========================================
 SCOPES = ['https://www.googleapis.com/auth/drive']
@@ -384,15 +553,124 @@ class OnlineHandler:
         self.parent = parent_window
         self.service = None
         self.poll_timer = QTimer(parent_window)
+        self.tab_check_timer = QTimer(parent_window)
+        self.cleanup_timer = QTimer(parent_window)  # For periodic cleanup
         self.poll_audio_id = None
         self.poll_notebook_id = None
         self.poll_output_name = None
         self.poll_local_out = None
         self.poll_attempts = 0
         self.max_poll_attempts = 180
+        self._canceled = False
+        self._lock = threading.Lock()
+        self._current_colab_url = None
+        self.tab_tracker = BrowserTabTracker()
+        self._cancel_lock = threading.Lock()
         logger.info("OnlineHandler initialized")
+        
+        # Setup tab check timer
+        self.tab_check_timer.timeout.connect(self.check_colab_tab_status)
+        self.tab_check_timer.start(5000)  # Check every 5 seconds
+        
+        # Setup cleanup timer to remove old Drive files
+        self.cleanup_timer.timeout.connect(self.cleanup_old_drive_files)
+        self.cleanup_timer.start(3600000)  # Run every hour
+
+    def cancel_operation(self):
+        """Cancel ongoing online operation and clean up Drive files"""
+        with self._cancel_lock:
+            self._canceled = True
+            
+        logger.info("Canceling online operation")
+        
+        # Stop polling timer
+        if self.poll_timer.isActive():
+            self.poll_timer.stop()
+            
+        # Clean up Drive files
+        self.cleanup_current_operation()
+        
+        # Unregister tab
+        if self._current_colab_url:
+            self.tab_tracker.unregister_tab(self._current_colab_url)
+            self._current_colab_url = None
+            
+        self.parent.statusBar().showMessage("Online operation canceled", 5000)
+
+    def cleanup_current_operation(self):
+        """Clean up Drive files for current operation"""
+        if not self.service:
+            return
+            
+        try:
+            # Delete uploaded audio
+            if self.poll_audio_id:
+                self.service.files().delete(fileId=self.poll_audio_id).execute()
+                logger.info(f"Deleted uploaded audio: {self.poll_audio_id}")
+                self.poll_audio_id = None
+            
+            # Delete notebook
+            if self.poll_notebook_id:
+                self.service.files().delete(fileId=self.poll_notebook_id).execute()
+                logger.info(f"Deleted notebook: {self.poll_notebook_id}")
+                self.poll_notebook_id = None
+                
+        except Exception as cleanup_err:
+            logger.warning(f"Drive cleanup error during cancel: {cleanup_err}")
+
+    def cleanup_old_drive_files(self):
+        """Periodic cleanup of old temporary files in Drive"""
+        if not self.service:
+            return
+            
+        try:
+            # Find files older than 24 hours in uploads folder
+            uploads_id = self.get_or_create_folder(self.service, "uploads")
+            one_day_ago = (datetime.datetime.now() - datetime.timedelta(days=1)).isoformat() + 'Z'
+            
+            query = f"'{uploads_id}' in parents and createdTime < '{one_day_ago}' and trashed=false"
+            results = self.service.files().list(q=query, fields="files(id,name)").execute()
+            
+            for file in results.get("files", []):
+                self.service.files().delete(fileId=file["id"]).execute()
+                logger.info(f"Cleaned up old file: {file['name']} ({file['id']})")
+                
+            # Clean up old notebooks
+            query = f"name='NotyCaption_Generator.ipynb' and createdTime < '{one_day_ago}' and trashed=false"
+            results = self.service.files().list(q=query, fields="files(id)").execute()
+            for file in results.get("files", []):
+                self.service.files().delete(fileId=file["id"]).execute()
+                logger.info(f"Cleaned up old notebook: {file['id']}")
+                
+        except Exception as e:
+            logger.warning(f"Error during Drive cleanup: {e}")
+
+    def check_colab_tab_status(self):
+        """Check if Colab tab is still open"""
+        if not self._current_colab_url or self._canceled:
+            return
+            
+        try:
+            if not self.tab_tracker.is_tab_open(self._current_colab_url):
+                logger.info("Colab tab was closed - canceling online operation")
+                self.parent.statusBar().showMessage("Colab tab closed - canceling operation...", 5000)
+                self.cancel_operation()
+                
+                # Notify parent
+                self.parent.is_generating = False
+                self.parent.freeze_ui(False)
+                QMessageBox.information(
+                    self.parent,
+                    "Operation Canceled",
+                    "Colab tab was closed. The online operation has been canceled and temporary files have been cleaned up."
+                )
+        except Exception as e:
+            logger.error(f"Error checking tab status: {e}")
 
     def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path):
+        with self._lock:
+            self._canceled = False
+            
         if not self.service:
             QMessageBox.warning(self.parent, "Error", "Please login with Google first.")
             logger.warning("Online mode attempted without service")
@@ -400,6 +678,10 @@ class OnlineHandler:
 
         logger.info("Starting online mode workflow")
         try:
+            # Check for cancellation before each major step
+            if self._canceled:
+                return False
+                
             self.poll_output_name = f"{base}_captions{fmt}"
             query = f"name='{self.poll_output_name}' and trashed=false"
             results = self.service.files().list(q=query, fields="files(id,name)").execute()
@@ -413,17 +695,28 @@ class OnlineHandler:
                     self.service.files().delete(fileId=f["id"]).execute()
                     logger.info(f"Deleted existing file: {f['id']}")
 
+            if self._canceled:
+                return False
+                
             query = "name='NotyCaption_Generator.ipynb' and trashed=false"
             results = self.service.files().list(q=query, fields="files(id)").execute()
             for f in results.get("files", []):
                 self.service.files().delete(fileId=f["id"]).execute()
                 logger.info(f"Deleted old notebook: {f['id']}")
 
+            if self._canceled:
+                return False
+                
             uploads_id = self.get_or_create_folder(self.service, "uploads")
             audio_filename = os.path.basename(audio_to_use)
             audio_id = self.upload_file(self.service, audio_to_use, audio_filename, uploads_id)
             logger.info(f"Uploaded audio: {audio_id}")
+            self.poll_audio_id = audio_id
 
+            if self._canceled:
+                self.cleanup_current_operation()
+                return False
+                
             query = f"name='{audio_filename}' and '{uploads_id}' in parents and trashed=false"
             results = self.service.files().list(q=query).execute()
             if not results.get("files", []):
@@ -433,6 +726,10 @@ class OnlineHandler:
                 audio_filename, wpl, fmt, self.poll_output_name, lang_code, task
             )
 
+            if self._canceled:
+                self.cleanup_current_operation()
+                return False
+                
             temp_ipynb = resource_path("temp_Notycaption_Generator.ipynb")
             with open(temp_ipynb, "w", encoding="utf-8") as f:
                 json.dump(notebook_content, f, indent=2)
@@ -440,23 +737,40 @@ class OnlineHandler:
             notebook_id = self.upload_file(self.service, temp_ipynb, "NotyCaption_Generator.ipynb")
             os.remove(temp_ipynb)
             logger.info(f"Uploaded notebook: {notebook_id}")
+            self.poll_notebook_id = notebook_id
 
+            if self._canceled:
+                self.cleanup_current_operation()
+                return False
+                
             colab_url = f"https://colab.research.google.com/drive/{notebook_id}"
+            self._current_colab_url = colab_url
+            
+            # Open the URL
             webbrowser.open(colab_url)
-            logger.info(f"Opened Colab: {colab_url}")
-
+            
+            # Register the tab with retries
+            self.parent.statusBar().showMessage("Registering Colab tab for tracking...", 3000)
+            QTimer.singleShot(1000, lambda: self.retry_register_tab(colab_url, 0))
+            
+            # Show appropriate message based on tracking availability
+            track_status = "enabled" if self.tab_tracker._available else "disabled"
+            track_msg = f"Tab tracking {track_status}"
+            if not self.tab_tracker._available:
+                track_msg += " (install psutil for tab tracking: pip install psutil)"
+            
             QMessageBox.information(
                 self.parent,
                 "Colab Launched (GPU Runtime Recommended)",
-                "Notebook opened in browser.\n\n"
+                f"Notebook opened in browser.\n\n"
                 "Important:\n"
                 "1. In Colab → Runtime → Change runtime type → Hardware accelerator → GPU (T4 recommended)\n"
                 "2. Wait 60 seconds → then Runtime → Run All\n"
-                "App will auto-download subtitles when finished."
+                "3. DO NOT close the Colab tab until processing completes\n"
+                "App will auto-download subtitles when finished.\n\n"
+                f"Status: {track_msg}"
             )
 
-            self.poll_audio_id = audio_id
-            self.poll_notebook_id = notebook_id
             self.poll_local_out = out_path
             self.parent.statusBar().showMessage("Online mode active – waiting for Colab (GPU) to finish...", 12000)
 
@@ -473,8 +787,24 @@ class OnlineHandler:
 
         except Exception as online_err:
             logger.error(f"Online mode failed: {traceback.format_exc()}")
+            self.cleanup_current_operation()
             QMessageBox.critical(self.parent, "Online Mode Failed", str(online_err))
             return False
+
+    def retry_register_tab(self, url, attempt):
+        """Retry tab registration with exponential backoff"""
+        if attempt >= 15:  # Max 15 attempts (about 45 seconds total)
+            logger.warning(f"Failed to register tab after {attempt} attempts")
+            self.parent.statusBar().showMessage("Could not track Colab tab - continuing anyway", 5000)
+            return
+            
+        if self.tab_tracker.register_tab(url):
+            logger.info(f"Tab registered successfully on attempt {attempt + 1}")
+            self.parent.statusBar().showMessage("Colab tab tracked successfully", 3000)
+        else:
+            # Try again with increasing delay
+            delay = min(1000 * (attempt + 1), 5000)  # Max 5 second delay
+            QTimer.singleShot(delay, lambda: self.retry_register_tab(url, attempt + 1))
 
     def get_or_create_folder(self, service, name):
         query = f"name='{name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -619,13 +949,32 @@ class OnlineHandler:
             logger.warning("Polling without output name set")
             return
 
+        # Check if canceled
+        if self._canceled:
+            self.poll_timer.stop()
+            return
+
+        # Check if tab is still open (only if tracking available)
+        if self.tab_tracker._available and self._current_colab_url and not self.tab_tracker.is_tab_open(self._current_colab_url):
+            logger.info("Colab tab was closed during polling - canceling")
+            self.cancel_operation()
+            self.parent.is_generating = False
+            self.parent.freeze_ui(False)
+            QMessageBox.information(
+                self.parent,
+                "Operation Canceled",
+                "Colab tab was closed. The online operation has been canceled."
+            )
+            return
+
         self.poll_attempts += 1
         logger.debug(f"Poll attempt {self.poll_attempts}/{self.max_poll_attempts}")
 
         if self.poll_attempts > self.max_poll_attempts:
             self.poll_timer.stop()
             self.parent.is_generating = False
-            self.parent.enable_controls()
+            self.parent.freeze_ui(False)
+            self.cleanup_current_operation()
             QMessageBox.critical(
                 self.parent,
                 "Colab Timeout / Crash Detected",
@@ -656,22 +1005,44 @@ class OnlineHandler:
                         downloader = MediaIoBaseDownload(f, request)
                         done = False
                         while not done:
+                            if self._canceled:
+                                logger.info("Download canceled during chunk download")
+                                return
                             status, done = downloader.next_chunk()
                             if status:
                                 progress_pct = int(status.progress() * 100)
                                 logger.info(f"Download progress: {progress_pct}%")
-                                self.parent.prog_main.setValue(progress_pct)
+                                self.parent.progress_update(progress_pct)
                     self.parent.load_downloaded_subtitles(self.poll_local_out)
-                    try:
-                        self.service.files().delete(fileId=self.poll_audio_id).execute()
-                        self.service.files().delete(fileId=self.poll_notebook_id).execute()
+                    
+                    # Clean up Drive files
+                    self.cleanup_current_operation()
+                    if file_id:
                         self.service.files().delete(fileId=file_id).execute()
-                        logger.info("Drive files cleaned up successfully")
-                    except Exception as cleanup_err:
-                        logger.warning(f"Cleanup failed: {cleanup_err}")
+                        logger.info(f"Deleted output file: {file_id}")
+                        
                     self.poll_timer.stop()
                     self.parent.is_generating = False
-                    self.parent.enable_controls()
+                    self.parent.freeze_ui(False)
+                    
+                    # Ask if user wants to close Colab tab
+                    if self._current_colab_url and self.tab_tracker._available:
+                        reply = QMessageBox.question(
+                            self.parent,
+                            "Close Colab Tab?",
+                            "Online generation completed successfully!\n\n"
+                            "Do you want to close the Colab tab?",
+                            QMessageBox.Yes | QMessageBox.No
+                        )
+                        if reply == QMessageBox.Yes:
+                            # Try to close the tab by killing the browser process (gentle approach)
+                            self.close_browser_tab(self._current_colab_url)
+                    
+                    # Unregister tab
+                    if self._current_colab_url:
+                        self.tab_tracker.unregister_tab(self._current_colab_url)
+                        self._current_colab_url = None
+                        
                     QMessageBox.information(
                         self.parent,
                         "Success - Subtitles Ready",
@@ -691,6 +1062,38 @@ class OnlineHandler:
                     )
         except Exception as poll_err:
             logger.warning(f"Poll network/drive error: {poll_err}")
+
+    def close_browser_tab(self, url):
+        """Attempt to close the browser tab"""
+        if not self.tab_tracker._available or url not in self.tab_tracker._tabs:
+            return
+            
+        try:
+            tab_info = self.tab_tracker._tabs[url]
+            proc = psutil.Process(tab_info['pid'])
+            
+            # On Windows, try to close the window gracefully
+            if IS_WINDOWS and WIN32_AVAILABLE:
+                def enum_windows_callback(hwnd, windows):
+                    if win32process.GetWindowThreadProcessId(hwnd)[1] == tab_info['pid']:
+                        windows.append(hwnd)
+                    return True
+                
+                windows = []
+                win32gui.EnumWindows(enum_windows_callback, windows)
+                
+                for hwnd in windows:
+                    try:
+                        win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+                        logger.info(f"Sent close message to window {hwnd}")
+                    except:
+                        pass
+            else:
+                # On other platforms, just note that we can't close it
+                logger.info("Automatic tab closing not supported on this platform")
+                
+        except Exception as e:
+            logger.error(f"Error closing browser tab: {e}")
 
     def cleanup_drive(self):
         if not self.service:
@@ -728,6 +1131,7 @@ class AudioEnhancerThread(QThread):
         self.temp_dir = temp_dir
         self._lock = threading.Lock()
         self._is_canceled = False
+        self._output_dir = None
         logger.info(f"AudioEnhancerThread initialized for {audio_file}")
 
     def cancel(self):
@@ -750,26 +1154,33 @@ class AudioEnhancerThread(QThread):
                 
             separator = Separator('spleeter:2stems')
             base_name = os.path.splitext(os.path.basename(self.audio_file))[0]
-            output_dir = os.path.join(self.temp_dir, base_name)
+            self._output_dir = os.path.join(self.temp_dir, base_name)
 
-            logger.info(f"Starting separation to {output_dir}")
+            logger.info(f"Starting separation to {self._output_dir}")
             if self.is_canceled():
                 return
                 
             separator.separate_to_file(
                 self.audio_file,
-                output_dir,
+                self._output_dir,
                 synchronous=True
             )
             self.progress.emit(80)
             logger.info("Separation phase complete")
             
             if self.is_canceled():
+                # Clean up partial output
+                if self._output_dir and os.path.exists(self._output_dir):
+                    try:
+                        shutil.rmtree(self._output_dir)
+                        logger.info(f"Cleaned up partial output: {self._output_dir}")
+                    except:
+                        pass
                 return
 
-            vocals_path = os.path.join(output_dir, base_name, 'vocals.wav')
+            vocals_path = os.path.join(self._output_dir, base_name, 'vocals.wav')
             if not os.path.exists(vocals_path):
-                vocals_path = os.path.join(output_dir, 'vocals.wav')
+                vocals_path = os.path.join(self._output_dir, 'vocals.wav')
                 if not os.path.exists(vocals_path):
                     raise FileNotFoundError(f"Vocals file not generated at {vocals_path}")
 
@@ -1161,6 +1572,8 @@ class NotyCaptionWindow(QMainWindow):
         self.player_timer.timeout.connect(self.update_timeline)
         self.player_timer.start(50)
         self._closing = False
+        self._cancel_lock = threading.Lock()
+        self._operation_in_progress = False
 
         self.load_existing_credentials()
 
@@ -1198,17 +1611,17 @@ class NotyCaptionWindow(QMainWindow):
         self.prog_title.setAlignment(Qt.AlignCenter)
         prog_lay.addWidget(self.prog_title)
 
-        # Progress info with download speed and size
+        # Progress info with download speed and size (only one progress display)
         self.prog_info = QLabel("Starting...")
         self.prog_info.setStyleSheet("color: #cccccc; font-size: 12px; margin-bottom: 15px;")
         self.prog_info.setAlignment(Qt.AlignCenter)
         prog_lay.addWidget(self.prog_info)
 
-        # Progress bar
-        self.overlay_prog = QProgressBar()
-        self.overlay_prog.setMinimum(0)
-        self.overlay_prog.setMaximum(100)
-        self.overlay_prog.setStyleSheet("""
+        # Single progress bar for all operations
+        self.operation_progress = QProgressBar()
+        self.operation_progress.setMinimum(0)
+        self.operation_progress.setMaximum(100)
+        self.operation_progress.setStyleSheet("""
             QProgressBar {
                 background: #3a3f44;
                 border: 2px solid #4a4f55;
@@ -1225,7 +1638,7 @@ class NotyCaptionWindow(QMainWindow):
                 border-radius: 8px;
             }
         """)
-        prog_lay.addWidget(self.overlay_prog)
+        prog_lay.addWidget(self.operation_progress)
 
         # Cancel button
         self.overlay_cancel_btn = QPushButton("Cancel Operation")
@@ -1259,7 +1672,7 @@ class NotyCaptionWindow(QMainWindow):
         self.overlay_layout.addWidget(self.overlay_cancel_btn, alignment=Qt.AlignCenter)
         self.overlay_cancel_btn.setParent(self.overlay)
 
-        # Download overlay for model download (separate from main overlay)
+        # Download overlay for model download (uses same progress bar but different container)
         self.download_overlay = QFrame(self.central_widget)
         self.download_overlay.setStyleSheet("""
             QFrame {
@@ -1295,10 +1708,11 @@ class NotyCaptionWindow(QMainWindow):
         self.download_info.setAlignment(Qt.AlignCenter)
         download_lay.addWidget(self.download_info)
 
-        self.download_prog = QProgressBar()
-        self.download_prog.setMinimum(0)
-        self.download_prog.setMaximum(100)
-        self.download_prog.setStyleSheet("""
+        # Download progress bar (separate from main operation progress)
+        self.download_progress = QProgressBar()
+        self.download_progress.setMinimum(0)
+        self.download_progress.setMaximum(100)
+        self.download_progress.setStyleSheet("""
             QProgressBar {
                 background: #3a3f44;
                 border: 2px solid #4a4f55;
@@ -1315,7 +1729,7 @@ class NotyCaptionWindow(QMainWindow):
                 border-radius: 8px;
             }
         """)
-        download_lay.addWidget(self.download_prog)
+        download_lay.addWidget(self.download_progress)
 
         self.download_cancel_btn = QPushButton("Cancel Download")
         self.download_cancel_btn.setStyleSheet("""
@@ -1354,6 +1768,72 @@ class NotyCaptionWindow(QMainWindow):
             self.download_overlay.raise_()
             self.download_cancel_btn.raise_()
         super().resizeEvent(event)
+
+    def closeEvent(self, event: QCloseEvent):
+        """Handle app close with confirmation if operations in progress"""
+        if self._operation_in_progress or self.is_generating:
+            reply = QMessageBox.question(
+                self,
+                "Operation in Progress",
+                "An operation is currently in progress.\n\n"
+                "Are you sure you want to exit? Any unsaved progress will be lost.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                event.ignore()
+                return
+
+        logger.info("App close event triggered")
+        self._closing = True
+        
+        self.player.stop()
+        self.player_timer.stop()
+        if hasattr(self, 'online_handler'):
+            self.online_handler.poll_timer.stop()
+            self.online_handler.tab_check_timer.stop()
+            self.online_handler.cleanup_timer.stop()
+
+        if self.model_download_thread and self.model_download_thread.isRunning():
+            logger.info("Download thread still running, canceling and waiting...")
+            self.model_download_thread.cancel()
+            if not self.model_download_thread.wait(3000):
+                logger.warning("Download thread did not finish in time, terminating...")
+                self.model_download_thread.terminate()
+                self.model_download_thread.wait(1000)
+
+        if self.enhancer_thread and self.enhancer_thread.isRunning():
+            logger.info("Enhancer thread still running, terminating...")
+            self.enhancer_thread.terminate()
+            self.enhancer_thread.wait(1000)
+
+        if self.audio_file and self.audio_file.endswith(".temp.wav") and os.path.exists(self.audio_file):
+            try:
+                os.remove(self.audio_file)
+                logger.info(f"Temp audio removed: {self.audio_file}")
+            except Exception as rm_err:
+                logger.warning(f"Temp audio removal failed: {rm_err}")
+
+        if self.last_temp_wav and os.path.exists(self.last_temp_wav):
+            try:
+                os.remove(self.last_temp_wav)
+                logger.info(f"Last temp WAV removed: {self.last_temp_wav}")
+            except Exception as rm_err:
+                logger.warning(f"Last temp removal failed: {rm_err}")
+
+        if hasattr(self, 'online_handler') and self.online_handler.service:
+            self.online_handler.cleanup_drive()
+
+        try:
+            cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
+        except Exception as e:
+            logger.warning(f"Failed to clean up models on exit: {e}")
+
+        self.settings["last_mode"] = self.mode
+        save_settings(self.settings)
+
+        logger.info("=== NotyCaption Secure Shutdown ===")
+        event.accept()
 
     def setup_left_panel(self):
         self.left_panel = QWidget()
@@ -1560,35 +2040,15 @@ class NotyCaptionWindow(QMainWindow):
         self.gen_btn.clicked.connect(self.start_caption_generation)
         bottom_layout.addWidget(self.gen_btn)
 
-        # Cancel button in bottom panel (for non-overlay operations)
-        self.cancel_btn = QPushButton("⏹️ Cancel")
-        self.cancel_btn.setMinimumHeight(70)
-        self.cancel_btn.setStyleSheet("""
-            QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #d32f2f,stop:1 #b71c1c); color: white; border-radius: 15px; font-weight: bold; font-size: 16px; padding: 15px; min-width: 120px; }
-            QPushButton:disabled { background: #ccc; }
-        """)
-        self.cancel_btn.clicked.connect(self.cancel_current_operation)
-        self.cancel_btn.setEnabled(False)
-        bottom_layout.addWidget(self.cancel_btn)
-
-        prog_container = QVBoxLayout()
-        bottom_layout.addLayout(prog_container)
-
-        self.prog_main = QProgressBar()
-        self.prog_main.setStyleSheet("""
+        # Single progress bar for main operations
+        self.main_progress = QProgressBar()
+        self.main_progress.setStyleSheet("""
             QProgressBar { background: #22252a; border: 2px solid #3a3f44; border-radius: 10px; text-align: center; color: white; font-weight: bold; height: 25px; }
             QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #0a84ff,stop:1 #0066cc); border-radius: 8px; }
         """)
-        self.prog_main.setFormat("Overall: %p%")
-        prog_container.addWidget(self.prog_main)
+        self.main_progress.setFormat("Progress: %p%")
+        bottom_layout.addWidget(self.main_progress)
 
-        self.prog_frame = QProgressBar()
-        self.prog_frame.setStyleSheet("""
-            QProgressBar { background: #22252a; border: 2px solid #3a3f44; border-radius: 10px; text-align: center; color: white; font-weight: bold; height: 25px; }
-            QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #ff9500,stop:1 #e68900); border-radius: 8px; }
-        """)
-        self.prog_frame.setFormat("Frame: %v / %m")
-        prog_container.addWidget(self.prog_frame)
         logger.info("Bottom panel setup complete")
 
     def setup_footer(self):
@@ -1699,20 +2159,35 @@ class NotyCaptionWindow(QMainWindow):
                 w.setEnabled(not freeze)
 
         if freeze:
+            self._operation_in_progress = True
             self.overlay.show()
             self.overlay.raise_()
             self.overlay_cancel_btn.raise_()
             self.overlay_cancel_btn.setEnabled(True)
             self.overlay_cancel_btn.setFocus()
             self.prog_title.setText(message)
+            self.prog_info.setText("Processing...")
+            self.operation_progress.setValue(0)
             self.statusBar().showMessage(message, 0)
+            # Ensure cancel button is the only interactive element
+            self.show_cancel_only(True)
         else:
+            self._operation_in_progress = False
             self.overlay.hide()
             self.statusBar().clearMessage()
+            self.show_cancel_only(False)
 
     def show_cancel_only(self, show=True):
         """Make sure only cancel button is interactive on overlay"""
         self.overlay_cancel_btn.setEnabled(show)
+        if show:
+            self.overlay_cancel_btn.raise_()
+            self.overlay_cancel_btn.setFocus()
+
+    def progress_update(self, value):
+        """Update both progress bars with the same value"""
+        self.operation_progress.setValue(value)
+        self.main_progress.setValue(value)
 
     def open_settings_dialog(self):
         logger.info("Opening settings dialog")
@@ -1746,56 +2221,6 @@ class NotyCaptionWindow(QMainWindow):
         exists = validate_model_file(model_path_v1) or validate_model_file(model_path)
         self.download_btn.setVisible(not exists)
         logger.info(f"Valid model exists: {exists} → Button visible: {not exists}")
-
-    def closeEvent(self, event: QCloseEvent):
-        logger.info("App close event triggered")
-        self._closing = True
-        
-        self.player.stop()
-        self.player_timer.stop()
-        if hasattr(self, 'online_handler'):
-            self.online_handler.poll_timer.stop()
-
-        if self.model_download_thread and self.model_download_thread.isRunning():
-            logger.info("Download thread still running, canceling and waiting...")
-            self.model_download_thread.cancel()
-            if not self.model_download_thread.wait(3000):
-                logger.warning("Download thread did not finish in time, terminating...")
-                self.model_download_thread.terminate()
-                self.model_download_thread.wait(1000)
-
-        if self.enhancer_thread and self.enhancer_thread.isRunning():
-            logger.info("Enhancer thread still running, terminating...")
-            self.enhancer_thread.terminate()
-            self.enhancer_thread.wait(1000)
-
-        if self.audio_file and self.audio_file.endswith(".temp.wav") and os.path.exists(self.audio_file):
-            try:
-                os.remove(self.audio_file)
-                logger.info(f"Temp audio removed: {self.audio_file}")
-            except Exception as rm_err:
-                logger.warning(f"Temp audio removal failed: {rm_err}")
-
-        if self.last_temp_wav and os.path.exists(self.last_temp_wav):
-            try:
-                os.remove(self.last_temp_wav)
-                logger.info(f"Last temp WAV removed: {self.last_temp_wav}")
-            except Exception as rm_err:
-                logger.warning(f"Last temp removal failed: {rm_err}")
-
-        if hasattr(self, 'online_handler') and self.online_handler.service:
-            self.online_handler.cleanup_drive()
-
-        try:
-            cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
-        except Exception as e:
-            logger.warning(f"Failed to clean up models on exit: {e}")
-
-        self.settings["last_mode"] = self.mode
-        save_settings(self.settings)
-
-        logger.info("=== NotyCaption Secure Shutdown ===")
-        event.accept()
 
     def initiate_google_login(self):
         client_secrets = load_client_secrets()
@@ -2071,8 +2496,7 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Enhancer thread started")
 
     def on_enhance_progress(self, value):
-        self.overlay_prog.setValue(value)
-        self.prog_main.setValue(value)
+        self.progress_update(value)
 
     def on_enhance_finished(self, vocals_path, success):
         self.freeze_ui(False)
@@ -2115,7 +2539,7 @@ class NotyCaptionWindow(QMainWindow):
         title.setAlignment(Qt.AlignCenter)
         lay.addWidget(title)
 
-        desc = QLabel("large-v1 is the most accurate model.\nRequires ~3 GB disk space.\nDownload may take 5-30 minutes depending on internet speed.")
+        desc = QLabel("large-v1 is the most accurate model.\nRequires ~3 GB disk space.\nDownload may take 5-30 minutes depending on internet speed.\n\nOptional dependencies for tab tracking:\n  pip install psutil pywin32")
         desc.setWordWrap(True)
         desc.setAlignment(Qt.AlignCenter)
         lay.addWidget(desc)
@@ -2184,19 +2608,12 @@ class NotyCaptionWindow(QMainWindow):
         self.download_overlay.show()
         self.download_overlay.raise_()
         self.download_cancel_btn.raise_()
-        self.download_prog.setValue(0)
+        self.download_progress.setValue(0)
         self.download_info.setText("Starting download...")
         self.download_cancel_btn.setEnabled(True)
 
-        # Disable main controls but keep cancel button functional
-        widgets_to_disable = [
-            self.import_btn, self.enhance_btn, self.gen_btn, self.play_btn, 
-            self.edit_btn, self.download_btn, self.login_button, self.mode_combo,
-            self.lang_combo, self.words_spin, self.format_combo, self.timeline
-        ]
-        for w in widgets_to_disable:
-            if hasattr(w, 'setEnabled'):
-                w.setEnabled(False)
+        # Freeze UI with custom message
+        self.freeze_ui(True, "Downloading Whisper large-v1 model... (5–30 min)")
 
         self.model_download_thread = ModelDownloadThread(path, self)
         self.model_download_thread.progress.connect(self.on_download_progress)
@@ -2210,7 +2627,8 @@ class NotyCaptionWindow(QMainWindow):
         if self._closing:
             return
             
-        self.download_prog.setValue(value)
+        self.download_progress.setValue(value)
+        self.progress_update(value)
         
         try:
             if (hasattr(self, 'model_download_thread') and 
@@ -2223,28 +2641,21 @@ class NotyCaptionWindow(QMainWindow):
                     downloaded_mb = info["downloaded"] / (1024 * 1024)
                     total_mb = info["total"] / (1024 * 1024)
                     self.download_info.setText(f"Downloading... {downloaded_mb:.1f} MB / {total_mb:.1f} MB ({value}%)")
+                    self.prog_info.setText(f"Downloading... {downloaded_mb:.1f} MB / {total_mb:.1f} MB")
                 else:
                     self.download_info.setText(f"Downloading... ({value}%)")
+                    self.prog_info.setText(f"Downloading... ({value}%)")
             else:
                 self.download_info.setText(f"Downloading... ({value}%)")
+                self.prog_info.setText(f"Downloading... ({value}%)")
         except Exception as e:
             logger.debug(f"Progress display error: {e}")
             self.download_info.setText(f"Downloading... ({value}%)")
+            self.prog_info.setText(f"Downloading... ({value}%)")
 
     def on_model_download_finished(self, success, message):
         self.download_overlay.hide()
-        
-        # Re-enable controls
-        widgets_to_enable = [
-            self.import_btn, self.enhance_btn, self.gen_btn, self.play_btn, 
-            self.edit_btn, self.download_btn, self.login_button, self.mode_combo,
-            self.lang_combo, self.words_spin, self.format_combo, self.timeline
-        ]
-        for w in widgets_to_enable:
-            if hasattr(w, 'setEnabled'):
-                w.setEnabled(True)
-        
-        self.download_cancel_btn.setEnabled(False)
+        self.freeze_ui(False)
         
         if success:
             self.update_download_button_visibility()
@@ -2258,18 +2669,7 @@ class NotyCaptionWindow(QMainWindow):
 
     def on_model_download_canceled(self):
         self.download_overlay.hide()
-        
-        # Re-enable controls
-        widgets_to_enable = [
-            self.import_btn, self.enhance_btn, self.gen_btn, self.play_btn, 
-            self.edit_btn, self.download_btn, self.login_button, self.mode_combo,
-            self.lang_combo, self.words_spin, self.format_combo, self.timeline
-        ]
-        for w in widgets_to_enable:
-            if hasattr(w, 'setEnabled'):
-                w.setEnabled(True)
-        
-        self.download_cancel_btn.setEnabled(False)
+        self.freeze_ui(False)
         logger.info("UI buttons re-enabled after cancel")
         
         try:
@@ -2298,8 +2698,8 @@ class NotyCaptionWindow(QMainWindow):
 
         self.is_generating = True
         self.freeze_ui(True, "Generating captions... Please wait or cancel")
-        self.prog_main.setValue(0)
-        self.prog_frame.setValue(0)
+        self.main_progress.setValue(0)
+        self.operation_progress.setValue(0)
         logger.info("=== Secure Caption Generation Started ===")
 
         auto_enhance = self.settings.get("auto_enhance", False)
@@ -2307,8 +2707,8 @@ class NotyCaptionWindow(QMainWindow):
             logger.info("Auto-enhancing audio before generation...")
             temp_dir = self.settings.get("temp_dir", tempfile.gettempdir())
             self.enhancer_thread = AudioEnhancerThread(self.audio_file, temp_dir, self)
-            self.enhancer_thread.progress.connect(lambda v: self.overlay_prog.setValue(v // 2))
-            self.enhancer_thread.finished.connect(self.on_auto_enhance_done)
+            self.enhancer_thread.progress.connect(lambda v: self.progress_update(v // 2))
+            self.enhancer_thread.finished.connect(lambda p, s: self.on_auto_enhance_done(p, s))
             self.enhancer_thread.error.connect(self.on_auto_enhance_error)
             self.enhancer_thread.start()
             return
@@ -2362,7 +2762,7 @@ class NotyCaptionWindow(QMainWindow):
 
         logger.info(f"Transcription params: lang={lang_code}, task={task}, wpl={wpl}, fmt={fmt}, out={out_path}")
 
-        self.overlay_prog.setValue(10)
+        self.progress_update(10)
 
         if self.mode == "online":
             success = self.online_handler.handle_online(audio_to_use, lang_code, task, wpl, fmt, base, out_path)
@@ -2374,9 +2774,9 @@ class NotyCaptionWindow(QMainWindow):
 
     def perform_local_transcription(self, audio_path, lang_code, task, wpl, fmt, out_path):
         try:
-            self.overlay_prog.setValue(20)
+            self.progress_update(20)
             model = self.load_whisper_model()
-            self.overlay_prog.setValue(30)
+            self.progress_update(30)
 
             logger.info("Starting local transcription...")
             result = model.transcribe(
@@ -2386,7 +2786,7 @@ class NotyCaptionWindow(QMainWindow):
                 word_timestamps=True,
                 verbose=False
             )
-            self.overlay_prog.setValue(80)
+            self.progress_update(80)
             logger.info("Transcription complete")
 
             self.subtitles = []
@@ -2429,7 +2829,7 @@ class NotyCaptionWindow(QMainWindow):
                     self.display_lines.append(line_text)
                     idx += 1
 
-            self.overlay_prog.setValue(90)
+            self.progress_update(90)
 
             preview_text = "\n\n".join(self.display_lines)
             self.caption_edit.setText(preview_text)
@@ -2437,7 +2837,7 @@ class NotyCaptionWindow(QMainWindow):
             self.edit_btn.setEnabled(True)
 
             self.save_subtitles_to_file(self.subtitles, fmt, out_path)
-            self.overlay_prog.setValue(100)
+            self.progress_update(100)
 
             logger.info(f"Local generation saved: {out_path}")
             QMessageBox.information(self, "Generation Complete", f"Captions generated and saved:\n{out_path}")
@@ -2554,72 +2954,64 @@ class NotyCaptionWindow(QMainWindow):
         self.caption_edit.setText(preview)
         logger.debug("Caption preview refreshed")
 
-    def disable_controls(self):
-        widgets = [
-            self.import_btn, self.enhance_btn, self.gen_btn, self.play_btn, 
-            self.edit_btn, self.download_btn, self.login_button, self.mode_combo,
-            self.lang_combo, self.words_spin, self.format_combo, self.timeline
-        ]
-        for w in widgets:
-            if hasattr(w, 'setEnabled'):
-                w.setEnabled(False)
-        self.cancel_btn.setEnabled(True)
-
-    def enable_controls(self):
-        widgets = [
-            self.import_btn, self.enhance_btn, self.gen_btn, self.play_btn, 
-            self.edit_btn, self.download_btn, self.login_button, self.mode_combo,
-            self.lang_combo, self.words_spin, self.format_combo, self.timeline
-        ]
-        for w in widgets:
-            if hasattr(w, 'setEnabled'):
-                w.setEnabled(True)
-        self.cancel_btn.setEnabled(False)
-
     def cancel_current_operation(self):
         logger.info("Cancel button pressed - stopping current operation")
-
-        stopped = False
-
-        if self.enhancer_thread and self.enhancer_thread.isRunning():
-            logger.info("Canceling Spleeter enhancement...")
-            self.enhancer_thread.cancel()
-            self.enhancer_thread.terminate()
-            self.enhancer_thread.wait(2000)
-            self.enhancer_thread = None
-            stopped = True
-            self.freeze_ui(False)
-
-        if self.model_download_thread and self.model_download_thread.isRunning():
-            logger.info("Canceling model download...")
-            self.model_download_thread.cancel()
-            self._check_cancel_complete()
-            stopped = True
-
-        if self.is_generating:
-            self.is_generating = False
-            self.freeze_ui(False)
-            stopped = True
-
-        if not self.overlay.isVisible() and not self.download_overlay.isVisible():
-            self.enable_controls()
         
-        if stopped:
-            self.statusBar().showMessage("Operation canceled by user", 5000)
-        else:
-            self.statusBar().showMessage("Nothing to cancel", 3000)
+        with self._cancel_lock:
+            stopped = False
+
+            # Cancel online operation if active
+            if hasattr(self, 'online_handler') and self.online_handler.poll_timer.isActive():
+                logger.info("Canceling online operation...")
+                self.online_handler.cancel_operation()
+                self.is_generating = False
+                self.freeze_ui(False)
+                stopped = True
+
+            # Cancel Spleeter enhancement if running
+            if self.enhancer_thread and self.enhancer_thread.isRunning():
+                logger.info("Canceling Spleeter enhancement...")
+                self.enhancer_thread.cancel()
+                self.enhancer_thread.terminate()
+                self.enhancer_thread.wait(2000)
+                self.enhancer_thread = None
+                self.is_generating = False
+                self.freeze_ui(False)
+                stopped = True
+
+            # Cancel model download if running
+            if self.model_download_thread and self.model_download_thread.isRunning():
+                logger.info("Canceling model download...")
+                self.model_download_thread.cancel()
+                self._check_cancel_complete()
+                stopped = True
+
+            # Cancel local generation if running
+            if self.is_generating and not stopped:
+                self.is_generating = False
+                self.freeze_ui(False)
+                stopped = True
+
+            if stopped:
+                self.statusBar().showMessage("Operation canceled by user", 5000)
+            else:
+                self.statusBar().showMessage("Nothing to cancel", 3000)
 
     def _check_cancel_complete(self):
-        """Check if cancellation is complete"""
-        if self._closing:
-            return
-            
-        if self.model_download_thread and self.model_download_thread.isRunning():
-            logger.warning("Download thread still running after cancel - forcing termination")
-            self.model_download_thread.terminate()
-            self.model_download_thread.wait(1000)
-            self.on_model_download_canceled()
-        else:
+        """Check if cancellation is complete with proper error handling"""
+        try:
+            if self._closing:
+                return
+                
+            if self.model_download_thread and self.model_download_thread.isRunning():
+                logger.warning("Download thread still running after cancel - forcing termination")
+                self.model_download_thread.terminate()
+                self.model_download_thread.wait(1000)
+                self.on_model_download_canceled()
+            else:
+                self.on_model_download_canceled()
+        except Exception as e:
+            logger.error(f"Error during cancel completion check: {e}")
             self.on_model_download_canceled()
 
 # ========================================
