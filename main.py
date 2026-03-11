@@ -21,10 +21,11 @@ from PyQt5.QtWidgets import (
     QLabel, QComboBox, QSpinBox, QPushButton, QTextEdit, QFileDialog,
     QMessageBox, QLineEdit, QScrollArea, QSlider, QProgressBar, QDialog,
     QGroupBox, QRadioButton, QStyleFactory, QTabWidget, QButtonGroup,
-    QFrame, QGraphicsOpacityEffect, QStackedWidget, QStatusBar
+    QFrame, QGraphicsOpacityEffect, QStackedWidget, QStatusBar, QSystemTrayIcon,
+    QMenu, QShortcut, QToolTip, QApplication
 )
-from PyQt5.QtGui import QIcon, QColor, QTextCharFormat, QTextCursor, QFont, QPalette, QCloseEvent, QPixmap, QBrush, QLinearGradient
-from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal, QThread, pyqtSlot, QPropertyAnimation, QEasingCurve, QProcess
+from PyQt5.QtGui import QIcon, QColor, QTextCharFormat, QTextCursor, QFont, QPalette, QCloseEvent, QPixmap, QBrush, QLinearGradient, QDesktopServices, QKeySequence
+from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal, QThread, pyqtSlot, QPropertyAnimation, QEasingCurve, QProcess, QSettings
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from moviepy.editor import VideoFileClip, AudioFileClip
 import pysrt
@@ -40,6 +41,7 @@ import numpy as np
 from spleeter.separator import Separator
 import warnings
 import platform
+import math
 
 # Force charset_normalizer to pure Python
 os.environ["CHARSET_NORMALIZER_USE_MYPYC"] = "0"
@@ -61,14 +63,41 @@ tf.get_logger().setLevel('ERROR')
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
 # ========================================
+# CONFIGURATION
+# ========================================
+APP_NAME = "NotyCaption"
+APP_AUTHOR = "NotY215"
+
+# Get app data directory for settings
+if getattr(sys, 'frozen', False):
+    # Running as compiled executable
+    if platform.system() == "Windows":
+        APP_DATA_DIR = os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), f"{APP_NAME}Saves")
+    else:
+        # Linux/Mac fallback
+        APP_DATA_DIR = os.path.join(os.path.expanduser('~'), f".{APP_NAME.lower()}saves")
+else:
+    # Running in development
+    APP_DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Create app data directory if it doesn't exist
+os.makedirs(APP_DATA_DIR, exist_ok=True)
+
+SETTINGS_FILE = os.path.join(APP_DATA_DIR, "settings.notcapz")
+KEY_FILE = os.path.join(APP_DATA_DIR, "key.notcapz")
+SESSION_FILE = os.path.join(APP_DATA_DIR, "session.json")
+TOKEN_FILE = os.path.join(APP_DATA_DIR, "token.json")
+CLIENT_JSON = os.path.join(APP_DATA_DIR, "client.json")
+CLIENT_ENCRYPTED = os.path.join(APP_DATA_DIR, "client.notycapz")
+
+# ========================================
 # LOGGING SETUP
 # ========================================
 def setup_logging():
-    CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
     if getattr(sys, 'frozen', False):
         base_dir = os.path.dirname(sys.executable)
     else:
-        base_dir = CURRENT_DIR
+        base_dir = os.path.dirname(os.path.abspath(__file__))
 
     log_dir = os.path.join(base_dir, "logs")
     os.makedirs(log_dir, exist_ok=True)
@@ -90,9 +119,10 @@ def setup_logging():
     logger.info(f"Python version: {sys.version}")
     logger.info(f"Working directory: {os.getcwd()}")
     logger.info(f"Log file: {log_file}")
+    logger.info(f"App data directory: {APP_DATA_DIR}")
     logger.info(f"PyInstaller frozen: {getattr(sys, 'frozen', False)}")
     logger.info(f"Executable path: {sys.executable if getattr(sys, 'frozen', False) else 'dev mode'}")
-    logger.info(f"Client mode: {'EXE (encrypted)' if os.path.exists(os.path.join(CURRENT_DIR, 'client.notycapz')) else 'Dev (plain)'}")
+    logger.info(f"Client mode: {'EXE (encrypted)' if os.path.exists(CLIENT_ENCRYPTED) else 'Dev (plain)'}")
     logger.info(f"CUDA available: {tf.test.is_built_with_cuda()} (Auto-fallback to CPU if no GPU)")
     return logger
 
@@ -114,14 +144,98 @@ def resource_path(relative_path):
     return full_path
 
 # ========================================
+# SESSION MANAGEMENT
+# ========================================
+class SessionManager:
+    """Manages session persistence for crash recovery"""
+    
+    def __init__(self):
+        self.session_file = SESSION_FILE
+        self._lock = threading.Lock()
+        logger.info(f"Session manager initialized with file: {self.session_file}")
+        
+    def save_session(self, session_data):
+        """Save current session data"""
+        with self._lock:
+            try:
+                # Add timestamp
+                session_data['last_saved'] = datetime.datetime.now().isoformat()
+                session_data['app_version'] = "2026.1.0"
+                
+                with open(self.session_file, 'w', encoding='utf-8') as f:
+                    json.dump(session_data, f, indent=2)
+                logger.info("Session saved successfully")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to save session: {e}")
+                return False
+                
+    def load_session(self):
+        """Load last saved session"""
+        with self._lock:
+            try:
+                if os.path.exists(self.session_file):
+                    with open(self.session_file, 'r', encoding='utf-8') as f:
+                        session_data = json.load(f)
+                    logger.info("Session loaded successfully")
+                    return session_data
+                else:
+                    logger.info("No session file found")
+                    return None
+            except Exception as e:
+                logger.error(f"Failed to load session: {e}")
+                return None
+                
+    def clear_session(self):
+        """Clear current session"""
+        with self._lock:
+            try:
+                if os.path.exists(self.session_file):
+                    os.remove(self.session_file)
+                    logger.info("Session cleared")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to clear session: {e}")
+                return False
+                
+    def save_operation_state(self, operation_type, data):
+        """Save ongoing operation state for recovery"""
+        session = self.load_session() or {}
+        if 'operations' not in session:
+            session['operations'] = []
+        
+        # Remove old operations of same type
+        session['operations'] = [op for op in session['operations'] if op.get('type') != operation_type]
+        
+        # Add new operation
+        operation = {
+            'type': operation_type,
+            'data': data,
+            'timestamp': datetime.datetime.now().isoformat()
+        }
+        session['operations'].append(operation)
+        
+        self.save_session(session)
+        
+    def get_operation_state(self, operation_type):
+        """Get saved operation state"""
+        session = self.load_session()
+        if session and 'operations' in session:
+            for op in session['operations']:
+                if op.get('type') == operation_type:
+                    return op.get('data')
+        return None
+        
+    def clear_operation_state(self, operation_type):
+        """Clear operation state"""
+        session = self.load_session()
+        if session and 'operations' in session:
+            session['operations'] = [op for op in session['operations'] if op.get('type') != operation_type]
+            self.save_session(session)
+
+# ========================================
 # ENCRYPTION UTILS
 # ========================================
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-SETTINGS_FILE = os.path.join(CURRENT_DIR, "settings.notcapz")
-KEY_FILE = os.path.join(CURRENT_DIR, "key.notcapz")
-CLIENT_JSON = os.path.join(CURRENT_DIR, "client.json")
-CLIENT_ENCRYPTED = os.path.join(CURRENT_DIR, "client.notycapz")
-
 def load_or_create_key():
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
         base = sys._MEIPASS
@@ -134,7 +248,15 @@ def load_or_create_key():
             return key_data
         else:
             logger.error(f"Bundled key key.notcapz not found in EXE")
-            raise FileNotFoundError(f"Encryption key missing in bundle: key.notcapz")
+            # Fallback to app data directory
+            key_path = KEY_FILE
+            if os.path.exists(key_path):
+                with open(key_path, "rb") as f:
+                    key_data = f.read()
+                logger.info("Fallback key loaded from app data")
+                return key_data
+            else:
+                raise FileNotFoundError(f"Encryption key missing")
 
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, "rb") as f:
@@ -142,7 +264,7 @@ def load_or_create_key():
         logger.info("Local dev key loaded")
         return key_data
 
-    logger.info("No key found - generating new one (dev mode only)")
+    logger.info("No key found - generating new one")
     key = Fernet.generate_key()
     with open(KEY_FILE, "wb") as f:
         f.write(key)
@@ -168,22 +290,35 @@ def save_settings(settings_dict):
     encrypted_b64 = encrypt_data(settings_dict)
     with open(SETTINGS_FILE, "w", encoding='utf-8') as f:
         f.write(encrypted_b64)
-    logger.info("Settings saved securely")
+    logger.info(f"Settings saved securely to {SETTINGS_FILE}")
 
 def load_settings():
     defaults = {
         "ui_scale": "100%",
         "theme": "Dark",
         "temp_dir": tempfile.gettempdir(),
-        "models_dir": CURRENT_DIR,
+        "models_dir": APP_DATA_DIR,
         "last_mode": "normal",
         "auto_enhance": False,
         "default_lang": "🇺🇸 English (Transcribe)",
+        "force_cancel_timeout": 30,
+        "max_retry_attempts": 5,
+        "confirm_cancel": True,
+        "minimize_to_tray": False,
+        "show_tooltips": True,
+        "words_per_line": 5,
+        "output_format": "📄 .SRT (Standard)",
+        "last_input_file": "",
+        "last_output_folder": "",
+        "window_geometry": None,
+        "window_state": None
     }
+    
     if not os.path.exists(SETTINGS_FILE):
         logger.info("No settings file found, using defaults")
         save_settings(defaults)
         return defaults
+        
     try:
         with open(SETTINGS_FILE, "r", encoding='utf-8') as f:
             encrypted_b64 = f.read().strip()
@@ -221,11 +356,23 @@ def load_client_secrets():
                 logger.error(f"Decryption failed for bundled file: {str(e)}")
         else:
             logger.warning("client.notycapz not found in bundle")
-    else:
-        if os.path.exists(CLIENT_JSON):
-            logger.info("Dev mode: loading plain client.json")
-            with open(CLIENT_JSON, "r", encoding='utf-8') as f:
-                return json.load(f)
+            
+    # Fallback to app data directory
+    if os.path.exists(CLIENT_ENCRYPTED):
+        try:
+            with open(CLIENT_ENCRYPTED, "r", encoding='utf-8') as f:
+                encrypted_b64 = f.read().strip()
+            decrypted = decrypt_data(encrypted_b64)
+            if decrypted and "installed" in decrypted:
+                logger.info("Client secrets loaded from app data")
+                return decrypted
+        except Exception as e:
+            logger.error(f"Failed to load client secrets from app data: {e}")
+            
+    if os.path.exists(CLIENT_JSON):
+        logger.info("Dev mode: loading plain client.json")
+        with open(CLIENT_JSON, "r", encoding='utf-8') as f:
+            return json.load(f)
 
     logger.warning("No valid client secrets found")
     return None
@@ -265,10 +412,19 @@ class SettingsDialog(QDialog):
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
         self.setWindowTitle("NotyCaption Settings - Secure Edition")
-        self.setFixedSize(580, 620)
+        self.setFixedSize(620, 720)
         self.current_settings = current_settings
         lay = QVBoxLayout()
         self.setLayout(lay)
+
+        # Create tab widget
+        tabs = QTabWidget()
+        lay.addWidget(tabs)
+
+        # ===== General Tab =====
+        general_tab = QWidget()
+        general_layout = QVBoxLayout()
+        general_tab.setLayout(general_layout)
 
         th_gb = QGroupBox("Visual Theme")
         th_lay = QVBoxLayout()
@@ -285,18 +441,23 @@ class SettingsDialog(QDialog):
         else: self.rb_dark.setChecked(True)
 
         th_gb.setLayout(th_lay)
-        lay.addWidget(th_gb)
+        general_layout.addWidget(th_gb)
 
         sc_gb = QGroupBox("UI Scaling")
         sc_lay = QHBoxLayout()
         self.scale_combo = QComboBox()
-        self.scale_combo.addItems(["75%", "87%", "100%", "125%", "150%", "175%"])
+        self.scale_combo.addItems(["75%", "87%", "100%", "125%", "150%", "175%", "200%"])
         self.scale_combo.setCurrentText(current_settings.get("ui_scale", "100%"))
         sc_lay.addWidget(QLabel("Scale Factor: "))
         sc_lay.addWidget(self.scale_combo)
         sc_lay.addStretch()
         sc_gb.setLayout(sc_lay)
-        lay.addWidget(sc_gb)
+        general_layout.addWidget(sc_gb)
+
+        # ===== Paths Tab =====
+        paths_tab = QWidget()
+        paths_layout = QVBoxLayout()
+        paths_tab.setLayout(paths_layout)
 
         tmp_gb = QGroupBox("Temporary Files Directory")
         tmp_lay = QHBoxLayout()
@@ -307,18 +468,25 @@ class SettingsDialog(QDialog):
         tmp_lay.addWidget(self.tmp_edit)
         tmp_lay.addWidget(tmp_btn)
         tmp_gb.setLayout(tmp_lay)
-        lay.addWidget(tmp_gb)
+        paths_layout.addWidget(tmp_gb)
 
         mod_gb = QGroupBox("Whisper Models Directory")
         mod_lay = QHBoxLayout()
-        self.mod_edit = QLineEdit(current_settings.get("models_dir", CURRENT_DIR))
-        self.mod_edit.setPlaceholderText("Default: App Root")
+        self.mod_edit = QLineEdit(current_settings.get("models_dir", APP_DATA_DIR))
+        self.mod_edit.setPlaceholderText(f"Default: {APP_DATA_DIR}")
         mod_btn = QPushButton("Browse Folder")
         mod_btn.clicked.connect(self.browse_models)
         mod_lay.addWidget(self.mod_edit)
         mod_lay.addWidget(mod_btn)
         mod_gb.setLayout(mod_lay)
-        lay.addWidget(mod_gb)
+        paths_layout.addWidget(mod_gb)
+
+        paths_layout.addStretch()
+
+        # ===== Features Tab =====
+        features_tab = QWidget()
+        features_layout = QVBoxLayout()
+        features_tab.setLayout(features_layout)
 
         auto_gb = QGroupBox("Auto Features")
         auto_lay = QVBoxLayout()
@@ -331,8 +499,85 @@ class SettingsDialog(QDialog):
         auto_lay.addWidget(QLabel("Default Language:"))
         auto_lay.addWidget(self.cb_default_lang)
         auto_gb.setLayout(auto_lay)
-        lay.addWidget(auto_gb)
+        features_layout.addWidget(auto_gb)
 
+        wpl_gb = QGroupBox("Default Words per Line")
+        wpl_lay = QHBoxLayout()
+        self.wpl_spin = QSpinBox()
+        self.wpl_spin.setRange(1, 20)
+        self.wpl_spin.setValue(current_settings.get("words_per_line", 5))
+        wpl_lay.addWidget(QLabel("Words: "))
+        wpl_lay.addWidget(self.wpl_spin)
+        wpl_lay.addStretch()
+        wpl_gb.setLayout(wpl_lay)
+        features_layout.addWidget(wpl_gb)
+
+        fmt_gb = QGroupBox("Default Output Format")
+        fmt_lay = QHBoxLayout()
+        self.fmt_combo = QComboBox()
+        self.fmt_combo.addItems(["📄 .SRT (Standard)", "🎨 .ASS (Advanced)"])
+        self.fmt_combo.setCurrentText(current_settings.get("output_format", "📄 .SRT (Standard)"))
+        fmt_lay.addWidget(QLabel("Format: "))
+        fmt_lay.addWidget(self.fmt_combo)
+        fmt_lay.addStretch()
+        fmt_gb.setLayout(fmt_lay)
+        features_layout.addWidget(fmt_gb)
+
+        # ===== Advanced Tab =====
+        advanced_tab = QWidget()
+        advanced_layout = QVBoxLayout()
+        advanced_tab.setLayout(advanced_layout)
+
+        cancel_gb = QGroupBox("Cancel Options")
+        cancel_lay = QVBoxLayout()
+        self.cb_confirm_cancel = QRadioButton("Ask for confirmation before canceling")
+        self.cb_confirm_cancel.setChecked(current_settings.get("confirm_cancel", True))
+        cancel_lay.addWidget(self.cb_confirm_cancel)
+        
+        timeout_lay = QHBoxLayout()
+        timeout_lay.addWidget(QLabel("Show force cancel after:"))
+        self.force_timeout_spin = QSpinBox()
+        self.force_timeout_spin.setRange(10, 120)
+        self.force_timeout_spin.setSuffix(" seconds")
+        self.force_timeout_spin.setValue(current_settings.get("force_cancel_timeout", 30))
+        timeout_lay.addWidget(self.force_timeout_spin)
+        timeout_lay.addStretch()
+        cancel_lay.addLayout(timeout_lay)
+        
+        retry_lay = QHBoxLayout()
+        retry_lay.addWidget(QLabel("Max retry attempts:"))
+        self.retry_spin = QSpinBox()
+        self.retry_spin.setRange(1, 20)
+        self.retry_spin.setValue(current_settings.get("max_retry_attempts", 5))
+        retry_lay.addWidget(self.retry_spin)
+        retry_lay.addStretch()
+        cancel_lay.addLayout(retry_lay)
+        
+        cancel_gb.setLayout(cancel_lay)
+        advanced_layout.addWidget(cancel_gb)
+
+        ui_gb = QGroupBox("UI Options")
+        ui_lay = QVBoxLayout()
+        self.cb_minimize_tray = QRadioButton("Minimize to system tray")
+        self.cb_minimize_tray.setChecked(current_settings.get("minimize_to_tray", False))
+        ui_lay.addWidget(self.cb_minimize_tray)
+        
+        self.cb_show_tooltips = QRadioButton("Show tooltips")
+        self.cb_show_tooltips.setChecked(current_settings.get("show_tooltips", True))
+        ui_lay.addWidget(self.cb_show_tooltips)
+        
+        ui_gb.setLayout(ui_lay)
+        advanced_layout.addWidget(ui_gb)
+        
+        advanced_layout.addStretch()
+
+        # Add tabs
+        tabs.addTab(general_tab, "General")
+        tabs.addTab(paths_tab, "Paths")
+        tabs.addTab(features_tab, "Features")
+        tabs.addTab(advanced_tab, "Advanced")
+
+        # Buttons
         btn_lay = QHBoxLayout()
         apply_btn = QPushButton("Apply & Restart UI")
         apply_btn.setStyleSheet("background:#007aff; color:white; padding:12px; border-radius:8px; font-weight:bold;")
@@ -369,6 +614,17 @@ class SettingsDialog(QDialog):
             "auto_enhance": self.cb_auto_enhance.isChecked(),
             "default_lang": self.cb_default_lang.currentText(),
             "last_mode": self.current_settings.get("last_mode", "normal"),
+            "force_cancel_timeout": self.force_timeout_spin.value(),
+            "max_retry_attempts": self.retry_spin.value(),
+            "confirm_cancel": self.cb_confirm_cancel.isChecked(),
+            "minimize_to_tray": self.cb_minimize_tray.isChecked(),
+            "show_tooltips": self.cb_show_tooltips.isChecked(),
+            "words_per_line": self.wpl_spin.value(),
+            "output_format": self.fmt_combo.currentText(),
+            "last_input_file": self.current_settings.get("last_input_file", ""),
+            "last_output_folder": self.current_settings.get("last_output_folder", ""),
+            "window_geometry": self.current_settings.get("window_geometry"),
+            "window_state": self.current_settings.get("window_state")
         }
         save_settings(new_settings)
         self.settingsChanged.emit(new_settings)
@@ -394,7 +650,7 @@ class OnlineHandler:
         self.poll_attempts = 0
         self.max_poll_attempts = 180
         self.retry_attempts = 0
-        self.max_retry_attempts = 5
+        self.max_retry_attempts = parent_window.settings.get("max_retry_attempts", 5)
         self._canceled = False
         self._lock = threading.Lock()
         self._current_colab_url = None
@@ -402,7 +658,10 @@ class OnlineHandler:
         self._cancel_requested = False
         self._stop_event = threading.Event()
         self._polling_active = False
-        self._online_status = "idle"  # idle, uploading, waiting, processing, downloading, completed, failed
+        self._online_status = "idle"
+        self._download_start_time = None
+        self._downloaded_bytes = 0
+        self._last_progress_update = 0
         logger.info("OnlineHandler initialized")
         
         # Setup cleanup timer
@@ -552,6 +811,7 @@ class OnlineHandler:
             self._cancel_requested = False
             self._stop_event.clear()
             self.retry_attempts = 0
+            self.max_retry_attempts = self.parent.settings.get("max_retry_attempts", 5)
             
         if not self.service:
             QMessageBox.warning(self.parent, "Error", "Please login with Google first.")
@@ -899,6 +1159,10 @@ class OnlineHandler:
                 file_id = files[0]["id"]
                 logger.info(f"Output file found: {file_id}")
                 self.update_status("downloading")
+                self._download_start_time = time.time()
+                self._downloaded_bytes = 0
+                self._last_progress_update = 0
+                
                 try:
                     with open(self.poll_local_out, "wb") as f:
                         request = self.service.files().get_media(fileId=file_id)
@@ -911,8 +1175,26 @@ class OnlineHandler:
                             status, done = downloader.next_chunk()
                             if status:
                                 progress_pct = int(status.progress() * 100)
+                                self._downloaded_bytes = status.resumable_progress
+                                
+                                # Calculate download speed and ETA
+                                if self._download_start_time:
+                                    elapsed = time.time() - self._download_start_time
+                                    if elapsed > 0 and self._downloaded_bytes > 0:
+                                        speed = self._downloaded_bytes / elapsed
+                                        remaining_bytes = status.total_size - self._downloaded_bytes
+                                        if speed > 0:
+                                            eta_seconds = remaining_bytes / speed
+                                            eta_str = str(timedelta(seconds=int(eta_seconds)))
+                                        else:
+                                            eta_str = "calculating..."
+                                    else:
+                                        eta_str = "calculating..."
+                                else:
+                                    eta_str = "calculating..."
+                                
                                 logger.info(f"Download progress: {progress_pct}%")
-                                self.parent.progress_update(progress_pct)
+                                self.parent.progress_update(progress_pct, eta_str, speed if 'speed' in locals() else 0)
                     self.parent.load_downloaded_subtitles(self.poll_local_out)
                     
                     # Clean up - only delete the output file, notebook and audio already deleted by Colab
@@ -950,6 +1232,7 @@ class OnlineHandler:
         except Exception as poll_err:
             logger.warning(f"Poll network/drive error: {poll_err}")
             self.update_status("network_error")
+            self.parent.show_error_details("Network Error", str(poll_err), "This may be a temporary network issue. The app will retry automatically.")
             # Schedule retry
             if not self.retry_timer.isActive() and not self._stop_event.is_set():
                 self.retry_timer.start(5000)  # Retry after 5 seconds
@@ -987,6 +1270,7 @@ class AudioEnhancerThread(QThread):
     finished = pyqtSignal(str, bool)
     error = pyqtSignal(str)
     status_changed = pyqtSignal(str)
+    speed_update = pyqtSignal(float, str)
 
     def __init__(self, audio_file, temp_dir, parent=None):
         super().__init__(parent)
@@ -998,6 +1282,8 @@ class AudioEnhancerThread(QThread):
         self._stop_event = threading.Event()
         self._output_dir = None
         self._status = "initializing"
+        self._start_time = None
+        self._processed_seconds = 0
         logger.info(f"AudioEnhancerThread initialized for {audio_file}")
 
     def cancel(self):
@@ -1029,6 +1315,7 @@ class AudioEnhancerThread(QThread):
         try:
             self.progress.emit(10)
             self.update_status("starting")
+            self._start_time = time.time()
             logger.info("Initializing Spleeter separator")
             
             if self.is_canceled():
@@ -1047,6 +1334,7 @@ class AudioEnhancerThread(QThread):
                 self.update_status("canceled")
                 return
                 
+            # Start processing in a way we can track progress
             separator.separate_to_file(
                 self.audio_file,
                 self._output_dir,
@@ -1054,6 +1342,14 @@ class AudioEnhancerThread(QThread):
             )
             self.progress.emit(80)
             logger.info("Separation phase complete")
+            
+            # Calculate processing speed
+            if self._start_time:
+                elapsed = time.time() - self._start_time
+                if elapsed > 0:
+                    speed = 1.0 / elapsed  # Simplified speed metric
+                    eta_str = "completed"
+                    self.speed_update.emit(speed, eta_str)
             
             if self.is_canceled():
                 logger.info("Enhancement canceled - cleaning up partial output")
@@ -1148,6 +1444,8 @@ class CancellableWhisperDownloader:
         self._temp_path = None
         self._stop_event = threading.Event()
         self._status = "idle"
+        self._start_time = None
+        self._speed_history = []
         
     def cancel(self):
         with self._lock:
@@ -1176,6 +1474,33 @@ class CancellableWhisperDownloader:
     def update_status(self, status):
         self._status = status
         
+    def calculate_speed_and_eta(self):
+        """Calculate download speed and ETA"""
+        if not self._start_time or self._downloaded == 0:
+            return 0, "calculating..."
+            
+        elapsed = time.time() - self._start_time
+        if elapsed <= 0:
+            return 0, "calculating..."
+            
+        # Calculate current speed (smoothed average)
+        current_speed = self._downloaded / elapsed
+        self._speed_history.append(current_speed)
+        if len(self._speed_history) > 10:
+            self._speed_history.pop(0)
+        
+        avg_speed = sum(self._speed_history) / len(self._speed_history)
+        
+        # Calculate ETA
+        if avg_speed > 0 and self._total_size > 0:
+            remaining_bytes = self._total_size - self._downloaded
+            eta_seconds = remaining_bytes / avg_speed
+            eta_str = str(timedelta(seconds=int(eta_seconds)))
+        else:
+            eta_str = "calculating..."
+            
+        return avg_speed, eta_str
+        
     def patched_download_url_to_file(self, original_func, url, dst, *args, **kwargs):
         if self.is_canceled():
             raise Exception("DOWNLOAD_CANCELED_BY_USER")
@@ -1183,6 +1508,7 @@ class CancellableWhisperDownloader:
         self._current_download = {'url': url, 'dst': dst}
         self._download_completed = False
         self._temp_path = dst + '.tmp'
+        self._start_time = time.time()
         
         try:
             import urllib.request
@@ -1220,7 +1546,9 @@ class CancellableWhisperDownloader:
                     if self._progress_callback and self._total_size > 0:
                         progress = int((self._downloaded / self._total_size) * 100)
                         if progress < 100:
-                            self._progress_callback(progress)
+                            # Calculate speed and ETA
+                            speed, eta = self.calculate_speed_and_eta()
+                            self._progress_callback(progress, speed, eta)
             
             if self.is_canceled():
                 if os.path.exists(self._temp_path):
@@ -1255,12 +1583,14 @@ class CancellableWhisperDownloader:
             self._canceled = False
             self._cancel_requested = False
             self._stop_event.clear()
+            self._speed_history = []
         self._progress_callback = progress_callback
         self._downloaded = 0
         self._total_size = 0
         self._download_completed = False
         self._response = None
         self._temp_path = None
+        self._start_time = None
         self.update_status("starting")
         
         original_download = None
@@ -1309,7 +1639,7 @@ class CancellableWhisperDownloader:
             self.update_status("completed")
             
             if progress_callback:
-                progress_callback(100)
+                progress_callback(100, 0, "completed")
                 
             return model
             
@@ -1339,7 +1669,7 @@ class CancellableWhisperDownloader:
 # MODEL DOWNLOAD THREAD
 # ========================================
 class ModelDownloadThread(QThread):
-    progress = pyqtSignal(int)
+    progress = pyqtSignal(int, float, str)  # progress, speed, eta
     finished = pyqtSignal(bool, str)
     canceled = pyqtSignal()
     status_changed = pyqtSignal(str)
@@ -1403,7 +1733,7 @@ class ModelDownloadThread(QThread):
         try:
             cleanup_corrupt_models(self.model_dir)
             
-            self.progress.emit(5)
+            self.progress.emit(5, 0, "calculating...")
             logger.info("Starting model download process")
             self.update_status("starting")
             
@@ -1412,13 +1742,13 @@ class ModelDownloadThread(QThread):
             
             if validate_model_file(model_path_v1):
                 logger.info("Valid large-v1 model already exists, skipping download")
-                self.progress.emit(100)
+                self.progress.emit(100, 0, "completed")
                 self.update_status("completed")
                 self.finished.emit(True, "Model already exists and is valid!")
                 return
             elif validate_model_file(model_path):
                 logger.info("Valid large model already exists, skipping download")
-                self.progress.emit(100)
+                self.progress.emit(100, 0, "completed")
                 self.update_status("completed")
                 self.finished.emit(True, "Model already exists and is valid!")
                 return
@@ -1427,11 +1757,11 @@ class ModelDownloadThread(QThread):
                 self._download_started = True
                 self._download_completed = False
             
-            def progress_callback(p):
+            def progress_callback(p, speed, eta):
                 if hasattr(self._downloader, '_downloaded') and hasattr(self._downloader, '_total_size'):
                     self.progress_info["downloaded"] = self._downloader._downloaded
                     self.progress_info["total"] = self._downloader._total_size
-                self.progress.emit(p)
+                self.progress.emit(p, speed, eta)
             
             self.update_status("downloading")
             model = self._downloader.download_model(
@@ -1450,7 +1780,7 @@ class ModelDownloadThread(QThread):
             
             if validate_model_file(model_path_v1):
                 logger.info("Model downloaded and validated successfully")
-                self.progress.emit(100)
+                self.progress.emit(100, 0, "completed")
                 self.update_status("completed")
                 self.finished.emit(True, "Model large-v1 downloaded and validated successfully!")
             else:
@@ -1483,38 +1813,60 @@ class NotyCaptionWindow(QMainWindow):
         self.setMinimumSize(1024, 768)
         logger.info("Initializing main window")
 
+        # Set window icon
         icon_path = resource_path('App.ico')
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
             logger.info("App icon set")
 
+        # Load settings
         self.settings = load_settings()
         
-        cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
+        # Initialize session manager
+        self.session_manager = SessionManager()
         
+        # Clean up corrupt models
+        cleanup_corrupt_models(self.settings.get("models_dir", APP_DATA_DIR))
+        
+        # Apply settings
         self.apply_ui_scale()
         self.apply_theme()
 
         self.center_window()
 
+        # Restore window geometry if available
+        if self.settings.get("window_geometry"):
+            self.restoreGeometry(bytes.fromhex(self.settings["window_geometry"]))
+        if self.settings.get("window_state"):
+            self.restoreState(bytes.fromhex(self.settings["window_state"]))
+
+        # Create central widget
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout()
         self.central_widget.setLayout(self.main_layout)
 
+        # Status bar
         self.statusBar().showMessage("Ready")
 
+        # Create system tray icon
+        self.create_tray_icon()
+
+        # Main layout
         self.top_layout = QHBoxLayout()
         self.main_layout.addLayout(self.top_layout)
 
+        # Setup UI panels
         self.setup_left_panel()
         self.setup_right_panel()
         self.setup_bottom_panel()
         self.setup_footer()
 
+        # Initialize state
         self.initialize_state()
         self.online_handler = OnlineHandler(self)
 
+        # Threads
         self.enhancer_thread = None
         self.model_download_thread = None
         self.player_timer = QTimer(self)
@@ -1528,8 +1880,102 @@ class NotyCaptionWindow(QMainWindow):
         self._force_cancel_timer.setSingleShot(True)
         self._force_cancel_timer.timeout.connect(self.show_force_cancel_option)
 
+        # Load existing credentials
         self.load_existing_credentials()
 
+        # Setup keyboard shortcuts
+        self.setup_shortcuts()
+
+        # Setup tooltips
+        self.setup_tooltips()
+
+        # Create overlays
+        self.create_overlays()
+
+        # Restore last session if available
+        self.restore_session()
+
+        logger.info("Main window fully initialized")
+
+    def create_tray_icon(self):
+        """Create system tray icon"""
+        self.tray_icon = QSystemTrayIcon(self)
+        icon_path = resource_path('App.ico')
+        if os.path.exists(icon_path):
+            self.tray_icon.setIcon(QIcon(icon_path))
+        
+        # Create tray menu
+        tray_menu = QMenu()
+        show_action = tray_menu.addAction("Show Window")
+        show_action.triggered.connect(self.show_window)
+        quit_action = tray_menu.addAction("Quit")
+        quit_action.triggered.connect(self.quit_app)
+        
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self.tray_icon_activated)
+
+    def tray_icon_activated(self, reason):
+        """Handle tray icon activation"""
+        if reason == QSystemTrayIcon.DoubleClick:
+            self.show_window()
+
+    def show_window(self):
+        """Show and activate main window"""
+        self.show()
+        self.activateWindow()
+        self.raise_()
+
+    def quit_app(self):
+        """Quit application"""
+        self.close()
+
+    def setup_shortcuts(self):
+        """Setup keyboard shortcuts"""
+        # File operations
+        QShortcut(QKeySequence("Ctrl+O"), self, self.import_media_file)
+        QShortcut(QKeySequence("Ctrl+G"), self, self.start_caption_generation)
+        QShortcut(QKeySequence("Ctrl+E"), self, self.enhance_audio_vocals)
+        QShortcut(QKeySequence("Ctrl+S"), self, self.toggle_edit_mode)
+        
+        # Playback
+        QShortcut(QKeySequence("Space"), self, self.toggle_media_playback)
+        QShortcut(QKeySequence("Ctrl+P"), self, self.toggle_media_playback)
+        
+        # Settings
+        QShortcut(QKeySequence("Ctrl+,"), self, self.open_settings_dialog)
+        
+        # Cancel
+        QShortcut(QKeySequence("Esc"), self, lambda: self.cancel_current_operation(with_confirmation=True))
+        
+        # Online mode
+        QShortcut(QKeySequence("Ctrl+L"), self, self.initiate_google_login)
+        QShortcut(QKeySequence("Ctrl+R"), self, self.reopen_notebook)
+
+    def setup_tooltips(self):
+        """Setup tooltips for all buttons"""
+        if not self.settings.get("show_tooltips", True):
+            return
+            
+        self.import_btn.setToolTip("Import video or audio file (Ctrl+O)")
+        self.enhance_btn.setToolTip("Extract vocals only using Spleeter (Ctrl+E)")
+        self.gen_btn.setToolTip("Generate captions using Whisper AI (Ctrl+G)")
+        self.play_btn.setToolTip("Play/Pause audio (Space or Ctrl+P)")
+        self.edit_btn.setToolTip("Edit captions (Ctrl+S)")
+        self.download_btn.setToolTip("Download Whisper large-v1 model (~2.9 GB)")
+        self.login_button.setToolTip("Login with Google for online mode (Ctrl+L)")
+        self.reopen_btn.setToolTip("Reopen Colab notebook in browser (Ctrl+R)")
+        self.copy_url_btn.setToolTip("Copy notebook URL to clipboard")
+        
+        # Settings
+        self.mode_combo.setToolTip("Choose processing mode: Local or Online")
+        self.lang_combo.setToolTip("Select language and task")
+        self.words_spin.setToolTip("Number of words per subtitle line")
+        self.format_combo.setToolTip("Subtitle output format")
+        self.out_folder_edit.setToolTip("Output folder for generated subtitles")
+
+    def create_overlays(self):
+        """Create overlay widgets"""
+        # Main operation overlay
         self.overlay = QFrame(self.central_widget)
         self.overlay.setStyleSheet("""
             QFrame {
@@ -1587,6 +2033,18 @@ class NotyCaptionWindow(QMainWindow):
         """)
         prog_lay.addWidget(self.operation_progress)
 
+        # Speed and ETA labels
+        speed_layout = QHBoxLayout()
+        self.speed_label = QLabel("Speed: --")
+        self.speed_label.setStyleSheet("color: #cccccc; font-size: 11px;")
+        speed_layout.addWidget(self.speed_label)
+        
+        self.eta_label = QLabel("ETA: --")
+        self.eta_label.setStyleSheet("color: #cccccc; font-size: 11px;")
+        speed_layout.addWidget(self.eta_label)
+        speed_layout.addStretch()
+        prog_lay.addLayout(speed_layout)
+
         self.overlay_cancel_btn = QPushButton("Cancel Operation")
         self.overlay_cancel_btn.setStyleSheet("""
             QPushButton {
@@ -1611,7 +2069,7 @@ class NotyCaptionWindow(QMainWindow):
                 color: #999999;
             }
         """)
-        self.overlay_cancel_btn.clicked.connect(lambda: self.cancel_current_operation(with_confirmation=True))
+        self.overlay_cancel_btn.clicked.connect(lambda: self.cancel_current_operation(with_confirmation=self.settings.get("confirm_cancel", True)))
         self.overlay_cancel_btn.setEnabled(False)
 
         self.overlay_force_cancel_btn = QPushButton("⚠️ Force Cancel (Emergency)")
@@ -1648,6 +2106,7 @@ class NotyCaptionWindow(QMainWindow):
         self.overlay_cancel_btn.setParent(self.overlay)
         self.overlay_force_cancel_btn.setParent(self.overlay)
 
+        # Download overlay
         self.download_overlay = QFrame(self.central_widget)
         self.download_overlay.setStyleSheet("""
             QFrame {
@@ -1705,6 +2164,18 @@ class NotyCaptionWindow(QMainWindow):
         """)
         download_lay.addWidget(self.download_progress)
 
+        # Download speed and ETA
+        download_speed_layout = QHBoxLayout()
+        self.download_speed_label = QLabel("Speed: --")
+        self.download_speed_label.setStyleSheet("color: #cccccc; font-size: 11px;")
+        download_speed_layout.addWidget(self.download_speed_label)
+        
+        self.download_eta_label = QLabel("ETA: --")
+        self.download_eta_label.setStyleSheet("color: #cccccc; font-size: 11px;")
+        download_speed_layout.addWidget(self.download_eta_label)
+        download_speed_layout.addStretch()
+        download_lay.addLayout(download_speed_layout)
+
         self.download_cancel_btn = QPushButton("Cancel Download")
         self.download_cancel_btn.setStyleSheet("""
             QPushButton {
@@ -1725,7 +2196,7 @@ class NotyCaptionWindow(QMainWindow):
                 background: #9a0000;
             }
         """)
-        self.download_cancel_btn.clicked.connect(lambda: self.cancel_current_operation(with_confirmation=True))
+        self.download_cancel_btn.clicked.connect(lambda: self.cancel_current_operation(with_confirmation=self.settings.get("confirm_cancel", True)))
         
         self.download_force_cancel_btn = QPushButton("⚠️ Force Cancel (Emergency)")
         self.download_force_cancel_btn.setStyleSheet("""
@@ -1758,9 +2229,8 @@ class NotyCaptionWindow(QMainWindow):
         download_overlay_layout.addWidget(self.download_cancel_btn, alignment=Qt.AlignCenter)
         download_overlay_layout.addWidget(self.download_force_cancel_btn, alignment=Qt.AlignCenter)
 
-        logger.info("Main window fully initialized")
-
     def resizeEvent(self, event):
+        """Handle window resize"""
         if hasattr(self, 'overlay') and self.overlay.isVisible():
             self.overlay.setGeometry(0, 0, self.central_widget.width(), self.central_widget.height())
             self.overlay.raise_()
@@ -1774,6 +2244,24 @@ class NotyCaptionWindow(QMainWindow):
         super().resizeEvent(event)
 
     def closeEvent(self, event: QCloseEvent):
+        """Handle window close event"""
+        # Save window geometry
+        self.settings["window_geometry"] = self.saveGeometry().toHex().data().decode()
+        self.settings["window_state"] = self.saveState().toHex().data().decode()
+        save_settings(self.settings)
+
+        if self.settings.get("minimize_to_tray", False) and not self._closing:
+            self.hide()
+            self.tray_icon.show()
+            self.tray_icon.showMessage(
+                "NotyCaption",
+                "Application minimized to system tray",
+                QSystemTrayIcon.Information,
+                2000
+            )
+            event.ignore()
+            return
+
         if self._operation_in_progress or self.is_generating:
             reply = QMessageBox.question(
                 self,
@@ -1790,8 +2278,17 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("App close event triggered")
         self._closing = True
         
+        # Clean up
+        self.cleanup_before_exit()
+        
+        logger.info("=== NotyCaption Secure Shutdown ===")
+        event.accept()
+
+    def cleanup_before_exit(self):
+        """Clean up resources before exit"""
         self.player.stop()
         self.player_timer.stop()
+        
         if hasattr(self, 'online_handler'):
             self.online_handler.poll_timer.stop()
             self.online_handler.cleanup_timer.stop()
@@ -1812,6 +2309,7 @@ class NotyCaptionWindow(QMainWindow):
                 self.enhancer_thread.terminate()
                 self.enhancer_thread.wait(1000)
 
+        # Clean up temp files
         if self.audio_file and self.audio_file.endswith(".temp.wav") and os.path.exists(self.audio_file):
             try:
                 os.remove(self.audio_file)
@@ -1826,21 +2324,27 @@ class NotyCaptionWindow(QMainWindow):
             except Exception as rm_err:
                 logger.warning(f"Last temp removal failed: {rm_err}")
 
+        # Clean up Drive
         if hasattr(self, 'online_handler') and self.online_handler.service:
             self.online_handler.cleanup_drive()
 
+        # Clean up corrupt models
         try:
-            cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
+            cleanup_corrupt_models(self.settings.get("models_dir", APP_DATA_DIR))
         except Exception as e:
             logger.warning(f"Failed to clean up models on exit: {e}")
 
-        self.settings["last_mode"] = self.mode
-        save_settings(self.settings)
-
-        logger.info("=== NotyCaption Secure Shutdown ===")
-        event.accept()
+    def restore_session(self):
+        """Restore last session if available"""
+        session = self.session_manager.load_session()
+        if session and session.get('last_input_file'):
+            last_file = session['last_input_file']
+            if os.path.exists(last_file):
+                self.import_media_file(last_file)
+                logger.info(f"Restored last session with file: {last_file}")
 
     def setup_left_panel(self):
+        """Setup left panel with caption editor"""
         self.left_panel = QWidget()
         self.left_panel.setMaximumWidth(700)
         self.left_layout = QVBoxLayout()
@@ -1901,6 +2405,7 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Left panel setup complete")
 
     def setup_right_panel(self):
+        """Setup right panel with controls"""
         self.right_scroll = QScrollArea()
         self.right_scroll.setWidgetResizable(True)
         self.right_scroll.setStyleSheet("QScrollArea { border: none; }")
@@ -1948,7 +2453,7 @@ class NotyCaptionWindow(QMainWindow):
         self.right_layout.addWidget(wpl_label, row, 0)
         self.words_spin = QSpinBox()
         self.words_spin.setRange(1, 20)
-        self.words_spin.setValue(5)
+        self.words_spin.setValue(self.settings.get("words_per_line", 5))
         self.words_spin.setMinimumHeight(50)
         self.words_spin.setStyleSheet("QSpinBox { font-size: 14px; padding: 10px; }")
         self.right_layout.addWidget(self.words_spin, row, 1)
@@ -1969,6 +2474,7 @@ class NotyCaptionWindow(QMainWindow):
         self.format_combo = QComboBox()
         self.format_combo.addItems(["📄 .SRT (Standard)", "🎨 .ASS (Advanced)"])
         self.format_combo.setMinimumHeight(50)
+        self.format_combo.setCurrentText(self.settings.get("output_format", "📄 .SRT (Standard)"))
         self.right_layout.addWidget(self.format_combo, row, 1)
         row += 1
 
@@ -1979,6 +2485,7 @@ class NotyCaptionWindow(QMainWindow):
         self.out_folder_edit.setReadOnly(True)
         self.out_folder_edit.setMinimumHeight(50)
         self.out_folder_edit.setPlaceholderText("Default: Source Folder")
+        self.out_folder_edit.setText(self.settings.get("last_output_folder", ""))
         self.right_layout.addWidget(self.out_folder_edit, row, 1)
         row += 1
 
@@ -2062,6 +2569,7 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Right panel setup complete")
 
     def setup_bottom_panel(self):
+        """Setup bottom panel with playback controls"""
         bottom_layout = QHBoxLayout()
         self.main_layout.addLayout(bottom_layout)
 
@@ -2115,6 +2623,7 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Bottom panel setup complete")
 
     def setup_footer(self):
+        """Setup footer with copyright"""
         footer = QLabel("NotyCaption Pro • Secure Edition 2026 • All rights reserved by NotY215 • Powered by Whisper AI & Spleeter")
         footer.setAlignment(Qt.AlignCenter)
         footer.setStyleSheet("color: #6c757d; font-size: 10px; margin: 15px 0; padding: 10px; border-top: 1px solid #404040;")
@@ -2122,9 +2631,10 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Footer setup complete")
 
     def initialize_state(self):
+        """Initialize application state"""
         self.input_file = None
         self.audio_file = None
-        self.output_folder = None
+        self.output_folder = self.settings.get("last_output_folder", None)
         self.subtitles = []
         self.display_lines = []
         self.player = QMediaPlayer()
@@ -2147,9 +2657,15 @@ class NotyCaptionWindow(QMainWindow):
         self.update_download_button_visibility()
         self.enhance_btn.setEnabled(bool(self.audio_file))
         self.play_btn.setEnabled(bool(self.audio_file))
+        
+        # Set output folder from settings if available
+        if self.output_folder and os.path.exists(self.output_folder):
+            self.out_folder_edit.setText(self.output_folder)
+            
         logger.info("App state initialized")
 
     def center_window(self):
+        """Center window on screen"""
         qr = self.frameGeometry()
         cp = QApplication.desktop().availableGeometry().center()
         qr.moveCenter(cp)
@@ -2157,6 +2673,7 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Window centered on screen")
 
     def apply_ui_scale(self):
+        """Apply UI scaling"""
         scale_str = self.settings.get("ui_scale", "100%")
         try:
             scale = float(scale_str.rstrip("%")) / 100.0
@@ -2169,6 +2686,7 @@ class NotyCaptionWindow(QMainWindow):
             logger.warning(f"UI scale apply failed: {scale_err}")
 
     def apply_theme(self):
+        """Apply UI theme"""
         theme = self.settings.get("theme", "Dark")
         if theme == "Light":
             pal = QPalette()
@@ -2199,6 +2717,7 @@ class NotyCaptionWindow(QMainWindow):
         logger.info(f"Theme applied: {theme}")
 
     def freeze_ui(self, freeze=True, message="Processing... Please wait or cancel"):
+        """Freeze/unfreeze UI"""
         widgets_to_disable = [
             self.import_btn,
             self.enhance_btn,
@@ -2232,8 +2751,10 @@ class NotyCaptionWindow(QMainWindow):
             self.operation_progress.setValue(0)
             self.statusBar().showMessage(message, 0)
             self.show_cancel_only(True)
-            # Start timer to show force cancel option after 30 seconds
-            self._force_cancel_timer.start(30000)
+            
+            # Start timer to show force cancel option
+            timeout = self.settings.get("force_cancel_timeout", 30)
+            self._force_cancel_timer.start(timeout * 1000)
         else:
             self._operation_in_progress = False
             self.overlay.hide()
@@ -2243,35 +2764,63 @@ class NotyCaptionWindow(QMainWindow):
             self.show_cancel_only(False)
 
     def show_cancel_only(self, show=True):
-        """Make sure only cancel button is interactive on overlay"""
+        """Show only cancel button on overlay"""
         self.overlay_cancel_btn.setEnabled(show)
         if show:
             self.overlay_cancel_btn.raise_()
             self.overlay_cancel_btn.setFocus()
 
     def show_force_cancel_option(self):
-        """Show force cancel button when operation takes too long"""
+        """Show force cancel button"""
         if self._operation_in_progress and self.overlay.isVisible():
             self.overlay_force_cancel_btn.show()
             self.overlay_force_cancel_btn.raise_()
             self.overlay_force_cancel_btn.setEnabled(True)
 
     def reset_progress_bars(self):
+        """Reset all progress bars"""
         self.operation_progress.setValue(0)
         self.main_progress.setValue(0)
         self.download_progress.setValue(0)
         self.prog_info.setText("Ready")
         self.download_info.setText("Ready")
+        self.speed_label.setText("Speed: --")
+        self.eta_label.setText("ETA: --")
+        self.download_speed_label.setText("Speed: --")
+        self.download_eta_label.setText("ETA: --")
 
-    def progress_update(self, value):
+    def progress_update(self, value, eta=None, speed=None):
+        """Update progress bars with speed and ETA"""
         self.operation_progress.setValue(value)
         self.main_progress.setValue(value)
+        
+        if eta:
+            self.eta_label.setText(f"ETA: {eta}")
+            self.download_eta_label.setText(f"ETA: {eta}")
+        if speed:
+            if speed > 1024 * 1024:
+                speed_str = f"{speed/(1024*1024):.1f} MB/s"
+            elif speed > 1024:
+                speed_str = f"{speed/1024:.1f} KB/s"
+            else:
+                speed_str = f"{speed:.1f} B/s"
+            self.speed_label.setText(f"Speed: {speed_str}")
+            self.download_speed_label.setText(f"Speed: {speed_str}")
+
+    def show_error_details(self, title, error, details):
+        """Show detailed error message"""
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle(title)
+        msg_box.setIcon(QMessageBox.Critical)
+        msg_box.setText(error)
+        msg_box.setDetailedText(details)
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.exec_()
 
     def update_notebook_url_display(self, url):
-        """Update the notebook URL display in the UI"""
+        """Update notebook URL display"""
         self._current_notebook_url = url
         if url:
-            # Truncate URL for display
             display_url = url if len(url) < 50 else url[:47] + "..."
             self.url_label.setText(f"Notebook URL: {display_url}")
             self.url_label.setToolTip(url)
@@ -2284,7 +2833,7 @@ class NotyCaptionWindow(QMainWindow):
             self.copy_url_btn.setEnabled(False)
 
     def update_online_status_display(self, status):
-        """Update online mode status display"""
+        """Update online status display"""
         status_colors = {
             "idle": "#cccccc",
             "uploading": "#ff9800",
@@ -2297,7 +2846,9 @@ class NotyCaptionWindow(QMainWindow):
             "force_canceled": "#9a0000",
             "canceling": "#ff9800",
             "timeout": "#f44336",
-            "network_error": "#ff9800"
+            "network_error": "#ff9800",
+            "starting": "#2196f3",
+            "initializing": "#2196f3"
         }
         color = status_colors.get(status, "#cccccc")
         status_text = status.replace("_", " ").title()
@@ -2305,7 +2856,7 @@ class NotyCaptionWindow(QMainWindow):
         self.status_value.setStyleSheet(f"color: {color}; font-size: 10px; font-weight: bold;")
 
     def reopen_notebook(self):
-        """Reopen the Colab notebook in browser"""
+        """Reopen Colab notebook"""
         if self._current_notebook_url:
             webbrowser.open(self._current_notebook_url)
             self.statusBar().showMessage("Reopening Colab notebook...", 3000)
@@ -2322,6 +2873,7 @@ class NotyCaptionWindow(QMainWindow):
             QMessageBox.information(self, "No URL", "No notebook URL to copy.")
 
     def open_settings_dialog(self):
+        """Open settings dialog"""
         logger.info("Opening settings dialog")
         dlg = SettingsDialog(self.settings, self)
         dlg.settingsChanged.connect(self.update_from_settings)
@@ -2331,22 +2883,33 @@ class NotyCaptionWindow(QMainWindow):
             logger.info("Settings dialog canceled")
 
     def update_from_settings(self, new_settings):
+        """Update from new settings"""
         self.settings = new_settings
         self.apply_ui_scale()
         self.apply_theme()
         self.lang_combo.setCurrentText(new_settings.get("default_lang", "🇺🇸 English (Transcribe)"))
-        self.words_spin.setValue(5)
+        self.words_spin.setValue(new_settings.get("words_per_line", 5))
+        self.format_combo.setCurrentText(new_settings.get("output_format", "📄 .SRT (Standard)"))
         self.update_download_button_visibility()
         self.mode_combo.setCurrentText("☁️ Online (Colab + Drive)" if new_settings.get("last_mode", "normal") == "online" else "🖥️ Normal (Local Whisper)")
+        
+        # Update online handler settings
+        if hasattr(self, 'online_handler'):
+            self.online_handler.max_retry_attempts = new_settings.get("max_retry_attempts", 5)
+            
+        # Update tooltips
+        self.setup_tooltips()
+        
         logger.info("Settings updated and applied globally")
 
     def update_download_button_visibility(self):
+        """Update download button visibility"""
         if self.mode == "online":
             self.download_btn.setVisible(False)
             logger.info("Download button hidden in online mode")
             return
 
-        model_dir = self.settings.get("models_dir", CURRENT_DIR)
+        model_dir = self.settings.get("models_dir", APP_DATA_DIR)
         model_path_v1 = os.path.join(model_dir, "large-v1.pt")
         model_path = os.path.join(model_dir, "large.pt")
         
@@ -2355,6 +2918,7 @@ class NotyCaptionWindow(QMainWindow):
         logger.info(f"Valid model exists: {exists} → Button visible: {not exists}")
 
     def initiate_google_login(self):
+        """Initiate Google login"""
         client_secrets = load_client_secrets()
         if not client_secrets:
             msg = "Google client secrets not found.\nIn dev mode, ensure client.json exists.\nIn EXE mode, rebuild with build.py to encrypt client.notycapz."
@@ -2368,7 +2932,7 @@ class NotyCaptionWindow(QMainWindow):
                 json.dump(client_secrets, f)
             flow = InstalledAppFlow.from_client_secrets_file(client_path, SCOPES)
             creds = flow.run_local_server(port=0)
-            with open("token.json", "w") as token:
+            with open(TOKEN_FILE, "w") as token:
                 token.write(creds.to_json())
             self.online_handler.service = build("drive", "v3", credentials=creds)
             self.login_button.setVisible(False)
@@ -2386,10 +2950,10 @@ class NotyCaptionWindow(QMainWindow):
                 logger.info("Temp client file removed")
 
     def load_existing_credentials(self):
-        token_path = "token.json"
-        if os.path.exists(token_path):
+        """Load existing Google credentials"""
+        if os.path.exists(TOKEN_FILE):
             try:
-                creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+                creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
                 if creds and creds.expired and creds.refresh_token:
                     creds.refresh(Request())
                 self.online_handler.service = build("drive", "v3", credentials=creds)
@@ -2400,11 +2964,12 @@ class NotyCaptionWindow(QMainWindow):
                 logger.info("Existing credentials loaded and refreshed - Online mode activated")
             except Exception as cred_err:
                 logger.error(f"Credential load failed: {cred_err}")
-                if os.path.exists(token_path):
-                    os.remove(token_path)
+                if os.path.exists(TOKEN_FILE):
+                    os.remove(TOKEN_FILE)
                     logger.info("Invalid token removed")
 
     def on_mode_change(self, text):
+        """Handle mode change"""
         self.mode = "online" if "Online" in text else "normal"
         self.settings["last_mode"] = self.mode
         save_settings(self.settings)
@@ -2412,8 +2977,9 @@ class NotyCaptionWindow(QMainWindow):
         logger.info(f"Mode switched to: {self.mode}")
 
     def load_whisper_model(self):
+        """Load Whisper model"""
         try:
-            model_dir = self.settings.get("models_dir", CURRENT_DIR)
+            model_dir = self.settings.get("models_dir", APP_DATA_DIR)
             logger.info(f"Loading Whisper large-v1 from: {model_dir}")
             
             cleanup_corrupt_models(model_dir)
@@ -2427,6 +2993,7 @@ class NotyCaptionWindow(QMainWindow):
             raise RuntimeError(f"Model load error: {str(load_err)}")
 
     def on_media_status_changed(self, status):
+        """Handle media status change"""
         if status == QMediaPlayer.LoadedMedia:
             self.play_btn.setEnabled(True)
             logger.info("Media loaded for playback")
@@ -2436,23 +3003,28 @@ class NotyCaptionWindow(QMainWindow):
             logger.warning("Media status invalid")
 
     def on_position_changed(self, position):
+        """Handle position change"""
         self.update_caption_highlight(position)
 
     def on_duration_changed(self, duration):
+        """Handle duration change"""
         self.duration_ms = duration
         self.timeline.setRange(0, duration)
         logger.debug(f"Media duration set: {duration} ms")
 
     def on_player_error(self, error):
+        """Handle player error"""
         err_str = self.player.errorString() or "Unknown error"
         logger.warning(f"Media player error: {err_str}")
         QMessageBox.warning(self, "Playback Error", f"Audio playback failed:\n{err_str}")
 
     def update_timeline(self):
+        """Update timeline slider"""
         if self.duration_ms > 0 and self.player.state() == QMediaPlayer.PlayingState:
             self.timeline.setValue(self.player.position())
 
     def toggle_media_playback(self):
+        """Toggle media playback"""
         if not self.audio_file or not os.path.exists(self.audio_file):
             QMessageBox.warning(self, "No Audio", "No audio file loaded or file was deleted.")
             logger.warning("Play clicked → no audio_file")
@@ -2488,6 +3060,7 @@ class NotyCaptionWindow(QMainWindow):
                                 "3. Re-import or restart app")
 
     def check_playback_status(self):
+        """Check playback status"""
         status = self.player.mediaStatus()
         logger.info(f"Playback status check: {status}")
         if status == QMediaPlayer.LoadedMedia:
@@ -2502,10 +3075,12 @@ class NotyCaptionWindow(QMainWindow):
                                 "• Install/update K-Lite Codec Pack (Basic)")
 
     def seek_media_position(self, position):
+        """Seek to position"""
         self.player.setPosition(position)
         logger.debug(f"Seek to: {position} ms")
 
     def update_caption_highlight(self, ms):
+        """Update caption highlight"""
         if not self.subtitles or not self.generated:
             return
         sec = ms / 1000.0
@@ -2536,22 +3111,36 @@ class NotyCaptionWindow(QMainWindow):
         cursor.endEditBlock()
         logger.debug(f"Highlighted line for time: {sec:.2f}s")
 
-    def import_media_file(self):
+    def import_media_file(self, file_path=None):
+        """Import media file"""
         logger.info("Media import dialog opened")
-        filter_str = "Media Files (*.mp4 *.mkv *.avi *.mov *.webm *.flv *.wmv *.mp3 *.wav *.m4a *.aac *.flac *.ogg *.wma *.amr *.opus)"
-        path, _ = QFileDialog.getOpenFileName(self, "Import Video or Audio", "", filter_str)
-        if not path:
+        if not file_path:
+            filter_str = "Media Files (*.mp4 *.mkv *.avi *.mov *.webm *.flv *.wmv *.mp3 *.wav *.m4a *.aac *.flac *.ogg *.wma *.amr *.opus)"
+            file_path, _ = QFileDialog.getOpenFileName(self, "Import Video or Audio", self.settings.get("last_input_file", ""), filter_str)
+            
+        if not file_path:
             logger.info("Import cancelled by user")
             return
 
-        logger.info(f"Importing: {path}")
-        self.input_file = path
-        self.output_folder = os.path.dirname(path)
+        logger.info(f"Importing: {file_path}")
+        self.input_file = file_path
+        self.output_folder = self.output_folder or os.path.dirname(file_path)
         self.out_folder_edit.setText(self.output_folder)
         self.enhance_btn.setEnabled(True)
+        
+        # Save to settings
+        self.settings["last_input_file"] = file_path
+        self.settings["last_output_folder"] = self.output_folder
+        save_settings(self.settings)
+        
+        # Save session
+        self.session_manager.save_operation_state("import", {
+            "file": file_path,
+            "timestamp": datetime.datetime.now().isoformat()
+        })
 
         temp_dir = self.settings.get("temp_dir", tempfile.gettempdir())
-        temp_name = os.path.splitext(os.path.basename(path))[0] + ".temp.wav"
+        temp_name = os.path.splitext(os.path.basename(file_path))[0] + ".temp.wav"
         new_temp = os.path.join(temp_dir, temp_name)
 
         if self.last_temp_wav and os.path.exists(self.last_temp_wav):
@@ -2562,10 +3151,10 @@ class NotyCaptionWindow(QMainWindow):
                 logger.warning(f"Previous temp removal failed: {rm_err}")
 
         success = False
-        if path.lower().endswith(('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv')):
+        if file_path.lower().endswith(('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv')):
             try:
                 logger.info("Extracting audio from video...")
-                clip = VideoFileClip(path)
+                clip = VideoFileClip(file_path)
                 if clip.audio is not None:
                     clip.audio.write_audiofile(new_temp, codec='pcm_s16le', logger=None, verbose=False)
                     self.audio_file = new_temp
@@ -2578,7 +3167,7 @@ class NotyCaptionWindow(QMainWindow):
         if not success:
             try:
                 logger.info("Converting audio file to WAV...")
-                audio_clip = AudioFileClip(path)
+                audio_clip = AudioFileClip(file_path)
                 audio_clip.write_audiofile(new_temp, codec='pcm_s16le', logger=None, verbose=False)
                 self.audio_file = new_temp
                 self.debug_audio_file()
@@ -2587,7 +3176,7 @@ class NotyCaptionWindow(QMainWindow):
                 logger.info("Audio conversion to WAV complete")
             except Exception as aud_err:
                 logger.warning(f"Audio conversion failed: {aud_err}")
-                self.audio_file = path
+                self.audio_file = file_path
                 QMessageBox.warning(self, "Conversion Warning", "Using original file (may be slower).")
 
         self.last_temp_wav = new_temp if success else None
@@ -2597,6 +3186,7 @@ class NotyCaptionWindow(QMainWindow):
         QMessageBox.information(self, "Import Complete", "Media imported and audio ready for processing.")
 
     def debug_audio_file(self):
+        """Debug audio file"""
         if not self.audio_file:
             logger.info("No audio file set")
             return
@@ -2605,13 +3195,17 @@ class NotyCaptionWindow(QMainWindow):
         logger.info(f"Size: {os.path.getsize(self.audio_file) / 1024 / 1024:.2f} MB")
 
     def browse_output_folder(self):
-        d = QFileDialog.getExistingDirectory(self, "Select Output Folder")
+        """Browse output folder"""
+        d = QFileDialog.getExistingDirectory(self, "Select Output Folder", self.output_folder or "")
         if d:
             self.output_folder = d
             self.out_folder_edit.setText(d)
+            self.settings["last_output_folder"] = d
+            save_settings(self.settings)
             logger.info(f"Output folder set: {d}")
 
     def enhance_audio_vocals(self):
+        """Enhance audio vocals"""
         if not self.audio_file or not os.path.exists(self.audio_file):
             QMessageBox.warning(self, "No Audio", "Import media first.")
             logger.warning("Enhance clicked without audio")
@@ -2625,18 +3219,21 @@ class NotyCaptionWindow(QMainWindow):
         self.enhancer_thread.finished.connect(self.on_enhance_finished)
         self.enhancer_thread.error.connect(self.on_enhance_error)
         self.enhancer_thread.status_changed.connect(lambda s: self.update_online_status_display(s))
+        self.enhancer_thread.speed_update.connect(lambda s, e: self.progress_update(self.operation_progress.value(), e, s))
         self.enhancer_thread.start()
         logger.info("Enhancer thread started")
 
     def on_enhance_progress(self, value):
+        """Handle enhance progress"""
         self.progress_update(value)
 
     def on_enhance_finished(self, vocals_path, success):
+        """Handle enhance finished"""
         self.freeze_ui(False)
         if success:
             base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
             final_name = f"{base}_enhanced_vocals.wav"
-            final_path = os.path.join(self.output_folder or CURRENT_DIR, final_name)
+            final_path = os.path.join(self.output_folder or APP_DATA_DIR, final_name)
             try:
                 shutil.move(vocals_path, final_path)
                 self.audio_file = final_path
@@ -2651,12 +3248,14 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Enhancer thread finished")
 
     def on_enhance_error(self, error_msg):
+        """Handle enhance error"""
         self.freeze_ui(False)
         logger.error(f"Enhancement error: {error_msg}")
         QMessageBox.critical(self, "Enhancement Failed", error_msg)
         self.enhancer_thread = None
 
     def open_model_download_dialog(self):
+        """Open model download dialog"""
         if self._closing:
             return
             
@@ -2729,7 +3328,7 @@ class NotyCaptionWindow(QMainWindow):
                 logger.info("Custom folder selection canceled")
                 return
         else:
-            path = self.settings["models_dir"]
+            path = self.settings.get("models_dir", APP_DATA_DIR)
 
         cleanup_corrupt_models(path)
 
@@ -2756,12 +3355,13 @@ class NotyCaptionWindow(QMainWindow):
 
         logger.info(f"Model download started to: {path}")
 
-    def on_download_progress(self, value):
+    def on_download_progress(self, value, speed, eta):
+        """Handle download progress"""
         if self._closing:
             return
             
         self.download_progress.setValue(value)
-        self.progress_update(value)
+        self.progress_update(value, eta, speed)
         
         try:
             if (hasattr(self, 'model_download_thread') and 
@@ -2787,6 +3387,7 @@ class NotyCaptionWindow(QMainWindow):
             self.prog_info.setText(f"Downloading... ({value}%)")
 
     def on_model_download_finished(self, success, message):
+        """Handle download finished"""
         self.download_overlay.hide()
         self.freeze_ui(False)
         self.reset_progress_bars()
@@ -2802,13 +3403,14 @@ class NotyCaptionWindow(QMainWindow):
         self._cancel_processed = False
 
     def on_model_download_canceled(self):
+        """Handle download canceled"""
         self.download_overlay.hide()
         self.freeze_ui(False)
         self.reset_progress_bars()
         logger.info("UI buttons re-enabled after cancel")
         
         try:
-            cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
+            cleanup_corrupt_models(self.settings.get("models_dir", APP_DATA_DIR))
         except Exception as e:
             logger.warning(f"Failed to clean up models after cancel: {e}")
         
@@ -2821,6 +3423,7 @@ class NotyCaptionWindow(QMainWindow):
         self._cancel_processed = False
 
     def start_caption_generation(self):
+        """Start caption generation"""
         if self.is_generating:
             QMessageBox.warning(self, "In Progress", "Generation already running.")
             logger.warning("Generation attempted while in progress")
@@ -2845,17 +3448,19 @@ class NotyCaptionWindow(QMainWindow):
             self.enhancer_thread.finished.connect(lambda p, s: self.on_auto_enhance_done(p, s))
             self.enhancer_thread.error.connect(self.on_auto_enhance_error)
             self.enhancer_thread.status_changed.connect(lambda s: self.update_online_status_display(s))
+            self.enhancer_thread.speed_update.connect(lambda s, e: self.progress_update(self.operation_progress.value(), e, s))
             self.enhancer_thread.start()
             return
 
         self.proceed_to_transcription(self.audio_file)
 
     def on_auto_enhance_done(self, vocals_path, success):
+        """Handle auto enhance done"""
         if success:
             enhanced_path = vocals_path
             base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
             final_name = f"{base}_auto_enhanced.wav"
-            final_path = os.path.join(self.output_folder or CURRENT_DIR, final_name)
+            final_path = os.path.join(self.output_folder or APP_DATA_DIR, final_name)
             shutil.move(vocals_path, final_path)
             self.audio_file = final_path
             self.play_btn.setEnabled(True)
@@ -2868,12 +3473,14 @@ class NotyCaptionWindow(QMainWindow):
         self.enhancer_thread = None
 
     def on_auto_enhance_error(self, error):
+        """Handle auto enhance error"""
         logger.error(f"Auto-enhance error: {error}")
         QMessageBox.warning(self, "Auto-Enhance Failed", error)
         self.enhancer_thread = None
         self.proceed_to_transcription(self.audio_file)
 
     def proceed_to_transcription(self, audio_to_use):
+        """Proceed to transcription"""
         lang_text = self.lang_combo.currentText()
         lang_code = "ja" if "Japanese" in lang_text else "en"
         task = "translate" if "Translate" in lang_text else "transcribe"
@@ -2885,7 +3492,7 @@ class NotyCaptionWindow(QMainWindow):
         }
         fmt = fmt_map.get(self.format_combo.currentText(), ".srt")
         base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
-        out_path = os.path.join(self.output_folder or CURRENT_DIR, f"{base}_captions{fmt}")
+        out_path = os.path.join(self.output_folder or APP_DATA_DIR, f"{base}_captions{fmt}")
 
         if os.path.exists(out_path):
             reply = QMessageBox.question(self, "Overwrite File?", f"File exists:\n{out_path}\nOverwrite?", QMessageBox.Yes | QMessageBox.No)
@@ -2910,6 +3517,7 @@ class NotyCaptionWindow(QMainWindow):
             self.perform_local_transcription(audio_to_use, lang_code, task, wpl, fmt, out_path)
 
     def perform_local_transcription(self, audio_path, lang_code, task, wpl, fmt, out_path):
+        """Perform local transcription"""
         try:
             self.progress_update(20)
             model = self.load_whisper_model()
@@ -2988,6 +3596,7 @@ class NotyCaptionWindow(QMainWindow):
             self.reset_progress_bars()
 
     def save_subtitles_to_file(self, subtitles, fmt, out_path):
+        """Save subtitles to file"""
         try:
             if fmt == ".srt":
                 srt_file = pysrt.SubRipFile()
@@ -3020,6 +3629,7 @@ class NotyCaptionWindow(QMainWindow):
             raise
 
     def load_downloaded_subtitles(self, file_path):
+        """Load downloaded subtitles"""
         logger.info(f"Loading online subtitles: {file_path}")
         try:
             self.subtitles = []
@@ -3057,6 +3667,7 @@ class NotyCaptionWindow(QMainWindow):
             QMessageBox.warning(self, "Load Error", f"Preview load failed:\n{str(load_err)}")
 
     def toggle_edit_mode(self):
+        """Toggle edit mode"""
         if not self.generated:
             logger.warning("Edit toggled without generated captions")
             return
@@ -3070,6 +3681,7 @@ class NotyCaptionWindow(QMainWindow):
         logger.info(f"Edit mode: {'enabled' if self.edit_active else 'disabled'}")
 
     def apply_edited_captions(self):
+        """Apply edited captions"""
         text_content = self.caption_edit.toPlainText().strip()
         edited_lines = [line.strip() for line in text_content.split('\n\n') if line.strip()]
 
@@ -3088,15 +3700,16 @@ class NotyCaptionWindow(QMainWindow):
         QMessageBox.information(self, "Saved", "Edits applied successfully.")
 
     def refresh_caption_preview(self):
+        """Refresh caption preview"""
         preview = "\n\n".join(self.display_lines)
         self.caption_edit.setText(preview)
         logger.debug("Caption preview refreshed")
 
     def cancel_current_operation(self, with_confirmation=False):
-        """Cancel current operation with optional confirmation"""
+        """Cancel current operation"""
         logger.info("Cancel button pressed - stopping current operation")
         
-        if with_confirmation:
+        if with_confirmation and self.settings.get("confirm_cancel", True):
             reply = QMessageBox.question(
                 self,
                 "Confirm Cancel",
@@ -3122,7 +3735,6 @@ class NotyCaptionWindow(QMainWindow):
             if self.enhancer_thread and self.enhancer_thread.isRunning():
                 logger.info("Canceling Spleeter enhancement...")
                 self.enhancer_thread.request_graceful_cancel()
-                # Give it time to cancel gracefully
                 if not self.enhancer_thread.wait(5000):
                     logger.warning("Enhancement did not cancel gracefully, forcing...")
                     self.enhancer_thread.terminate()
@@ -3136,7 +3748,6 @@ class NotyCaptionWindow(QMainWindow):
             if self.model_download_thread and self.model_download_thread.isRunning():
                 logger.info("Canceling model download...")
                 self.model_download_thread.request_graceful_cancel()
-                # Let the cancel handler deal with it
                 stopped = True
 
             if self.is_generating and not stopped:
@@ -3151,7 +3762,7 @@ class NotyCaptionWindow(QMainWindow):
                 self.statusBar().showMessage("Nothing to cancel", 3000)
 
     def force_cancel_operation(self):
-        """Force cancel operation without waiting for graceful shutdown"""
+        """Force cancel operation"""
         logger.info("Force cancel button pressed - forcefully stopping operation")
         
         reply = QMessageBox.warning(
@@ -3190,6 +3801,7 @@ class NotyCaptionWindow(QMainWindow):
             self.statusBar().showMessage("Operation force canceled", 5000)
 
     def _check_cancel_complete(self):
+        """Check if cancel is complete"""
         try:
             if self._closing:
                 return
@@ -3215,8 +3827,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     app = QApplication(sys.argv)
-    app.setApplicationName("NotyCaption Pro")
-    app.setOrganizationName("NotY215")
+    app.setApplicationName(APP_NAME)
+    app.setOrganizationName(APP_AUTHOR)
     app.setStyle('Fusion')
 
     icon_path = resource_path('App.ico')
