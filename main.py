@@ -1,6 +1,5 @@
 import sys
 import os
-import tqdm
 import json
 import shutil
 import subprocess
@@ -22,7 +21,7 @@ from PyQt5.QtWidgets import (
     QLabel, QComboBox, QSpinBox, QPushButton, QTextEdit, QFileDialog,
     QMessageBox, QLineEdit, QScrollArea, QSlider, QProgressBar, QDialog,
     QGroupBox, QRadioButton, QStyleFactory, QTabWidget, QButtonGroup,
-    QFrame, QGraphicsOpacityEffect, QStackedWidget
+    QFrame, QGraphicsOpacityEffect, QStackedWidget, QStatusBar
 )
 from PyQt5.QtGui import QIcon, QColor, QTextCharFormat, QTextCursor, QFont, QPalette, QCloseEvent, QPixmap, QBrush, QLinearGradient
 from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal, QThread, pyqtSlot, QPropertyAnimation, QEasingCurve
@@ -41,51 +40,40 @@ import numpy as np
 from spleeter.separator import Separator
 import warnings
 
-# Force charset_normalizer to use pure Python mode (disable mypyc)
+# Force charset_normalizer to pure Python (no mypyc crash in frozen exe)
 os.environ["CHARSET_NORMALIZER_USE_MYPYC"] = "0"
 
-
-# Force disable tqdm globally in frozen mode from the beginning
+# Disable tqdm in frozen EXE to prevent crashes
 if getattr(sys, 'frozen', False):
-    import tqdm
     tqdm.disable = True
 
-# IMPORTANT: Suppress googleapiclient file_cache warning by disabling it
+# Suppress googleapiclient file_cache warning
 os.environ["GOOGLEAPI_DISABLE_FILE_CACHE"] = "1"
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="googleapiclient.discovery_cache")
 
-# Suppress TensorFlow CUDA warnings (common on CPU-only systems)
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'          # 3 = ERROR only (hides all warnings)
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'         # Disable oneDNN optimizations (sometimes causes shutdown issues)
-os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # If you ever use GPU later
+# Suppress TensorFlow CUDA warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 import tensorflow as tf
 tf.get_logger().setLevel('ERROR')
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 
 # ========================================
-# LOGGING SETUP - Secure & Persistent (MOVED TO TOP)
+# LOGGING SETUP
 # ========================================
 def setup_logging():
-    """
-    Configure logging with file and console handlers.
-    Creates timestamped log files in logs/ directory.
-    Handles both dev and frozen (EXE) modes.
-    """
-    CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))  # Define here for logging
+    CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
     if getattr(sys, 'frozen', False):
         base_dir = os.path.dirname(sys.executable)
-        print(f"Logging in frozen EXE mode to {base_dir}")  # Temp print before logger
     else:
         base_dir = CURRENT_DIR
-        print(f"Logging in development mode to {base_dir}")  # Temp print
 
     log_dir = os.path.join(base_dir, "logs")
     os.makedirs(log_dir, exist_ok=True)
-    print(f"Log directory: {log_dir}")  # Temp print
 
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3]
     log_file = os.path.join(log_dir, f"NotyCaption_{timestamp}.log")
-    print(f"Log file path: {log_file}")  # Temp print
 
     logging.basicConfig(
         level=logging.INFO,
@@ -110,15 +98,10 @@ def setup_logging():
 logger = setup_logging()
 
 # ========================================
-# RESOURCE PATH HELPER - For Bundled EXE
+# RESOURCE PATH HELPER
 # ========================================
 def resource_path(relative_path):
-    """
-    Get absolute path to resource, works for dev and for PyInstaller.
-    Enhanced with error handling for missing resources in bundled mode.
-    """
     try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
         logger.info(f"Resource path using PyInstaller temp: {base_path}")
     except Exception:
@@ -130,20 +113,18 @@ def resource_path(relative_path):
     return full_path
 
 # ========================================
-# ENCRYPTION UTILS - For Settings & Client
+# ENCRYPTION UTILS
 # ========================================
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(CURRENT_DIR, "settings.notcapz")
 KEY_FILE = os.path.join(CURRENT_DIR, "key.notcapz")
-KEY_FILE_NAME = "key.notcapz"
 CLIENT_JSON = os.path.join(CURRENT_DIR, "client.json")
 CLIENT_ENCRYPTED = os.path.join(CURRENT_DIR, "client.notycapz")
 
 def load_or_create_key():
     if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        # EXE mode: load bundled key
         base = sys._MEIPASS
-        key_path = os.path.join(base, KEY_FILE_NAME)
+        key_path = os.path.join(base, "key.notcapz")
         logger.info(f"EXE mode: loading bundled key from {key_path}")
         if os.path.exists(key_path):
             with open(key_path, "rb") as f:
@@ -151,17 +132,15 @@ def load_or_create_key():
             logger.info("Bundled key loaded successfully")
             return key_data
         else:
-            logger.error(f"Bundled key {KEY_FILE_NAME} not found in EXE")
-            raise FileNotFoundError(f"Encryption key missing in bundle: {KEY_FILE_NAME}")
+            logger.error(f"Bundled key key.notcapz not found in EXE")
+            raise FileNotFoundError(f"Encryption key missing in bundle: key.notcapz")
 
-    # Dev mode: use local key
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, "rb") as f:
             key_data = f.read()
         logger.info("Local dev key loaded")
         return key_data
 
-    # Create new only in dev mode (never in EXE)
     logger.info("No key found - generating new one (dev mode only)")
     key = Fernet.generate_key()
     with open(KEY_FILE, "wb") as f:
@@ -171,19 +150,11 @@ def load_or_create_key():
 fernet = Fernet(load_or_create_key())
 
 def encrypt_data(data):
-    """
-    Encrypt JSON data using Fernet symmetric encryption.
-    Base64 encodes for safe file storage.
-    """
     json_str = json.dumps(data, ensure_ascii=False, indent=2)
     encrypted = fernet.encrypt(json_str.encode('utf-8'))
     return base64.b64encode(encrypted).decode('utf-8')
 
 def decrypt_data(encrypted_b64):
-    """
-    Decrypt and parse JSON from base64 encoded string.
-    Handles decryption errors gracefully.
-    """
     try:
         encrypted = base64.b64decode(encrypted_b64.encode('utf-8'))
         decrypted = fernet.decrypt(encrypted).decode('utf-8')
@@ -193,24 +164,16 @@ def decrypt_data(encrypted_b64):
         return None
 
 def save_settings(settings_dict):
-    """
-    Save encrypted settings to file.
-    Overwrites existing file atomically.
-    """
     encrypted_b64 = encrypt_data(settings_dict)
     with open(SETTINGS_FILE, "w", encoding='utf-8') as f:
         f.write(encrypted_b64)
     logger.info("Settings saved securely")
 
 def load_settings():
-    """
-    Load and decrypt settings from file, fallback to defaults if corrupted.
-    Merges loaded data with defaults to ensure completeness.
-    """
     defaults = {
         "ui_scale": "100%",
         "theme": "Dark",
-        "temp_dir": QDir.tempPath(),
+        "temp_dir": tempfile.gettempdir(),
         "models_dir": CURRENT_DIR,
         "last_mode": "normal",
         "auto_enhance": False,
@@ -258,7 +221,6 @@ def load_client_secrets():
         else:
             logger.warning("client.notycapz not found in bundle")
     else:
-        # Dev mode fallback
         if os.path.exists(CLIENT_JSON):
             logger.info("Dev mode: loading plain client.json")
             with open(CLIENT_JSON, "r", encoding='utf-8') as f:
@@ -268,13 +230,9 @@ def load_client_secrets():
     return None
 
 # ========================================
-# SINGLE INSTANCE CHECK - Socket Based
+# SINGLE INSTANCE CHECK
 # ========================================
 class SingleInstance:
-    """
-    Ensures only one instance of the app runs using socket binding.
-    Prevents multiple windows and resource conflicts.
-    """
     def __init__(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.already_exists = False
@@ -287,15 +245,9 @@ class SingleInstance:
             logger.warning(f"Single instance check failed: {bind_err} - Another instance may be running")
 
     def is_already_running(self):
-        """
-        Check if another instance is detected.
-        """
         return self.already_exists
 
     def __del__(self):
-        """
-        Cleanup socket on destruction.
-        """
         if not self.already_exists:
             try:
                 self.sock.close()
@@ -304,13 +256,9 @@ class SingleInstance:
                 logger.warning(f"Socket close failed: {close_err}")
 
 # ========================================
-# SETTINGS DIALOG - Enhanced UI
+# SETTINGS DIALOG
 # ========================================
 class SettingsDialog(QDialog):
-    """
-    Advanced settings dialog with theme, scaling, paths, and auto-features.
-    Emits signal on changes for live updates.
-    """
     settingsChanged = pyqtSignal(dict)
 
     def __init__(self, current_settings, parent=None):
@@ -321,7 +269,6 @@ class SettingsDialog(QDialog):
         lay = QVBoxLayout()
         self.setLayout(lay)
 
-        # Theme Group
         th_gb = QGroupBox("Visual Theme")
         th_lay = QVBoxLayout()
         self.rb_win = QRadioButton("System Default (Windows)")
@@ -339,7 +286,6 @@ class SettingsDialog(QDialog):
         th_gb.setLayout(th_lay)
         lay.addWidget(th_gb)
 
-        # Scaling Group
         sc_gb = QGroupBox("UI Scaling")
         sc_lay = QHBoxLayout()
         self.scale_combo = QComboBox()
@@ -351,10 +297,9 @@ class SettingsDialog(QDialog):
         sc_gb.setLayout(sc_lay)
         lay.addWidget(sc_gb)
 
-        # Temp Dir Group
         tmp_gb = QGroupBox("Temporary Files Directory")
         tmp_lay = QHBoxLayout()
-        self.tmp_edit = QLineEdit(current_settings.get("temp_dir", QDir.tempPath()))
+        self.tmp_edit = QLineEdit(current_settings.get("temp_dir", tempfile.gettempdir()))
         self.tmp_edit.setPlaceholderText("Default: System Temp")
         tmp_btn = QPushButton("Browse Folder")
         tmp_btn.clicked.connect(self.browse_temp)
@@ -363,7 +308,6 @@ class SettingsDialog(QDialog):
         tmp_gb.setLayout(tmp_lay)
         lay.addWidget(tmp_gb)
 
-        # Models Dir Group
         mod_gb = QGroupBox("Whisper Models Directory")
         mod_lay = QHBoxLayout()
         self.mod_edit = QLineEdit(current_settings.get("models_dir", CURRENT_DIR))
@@ -375,7 +319,6 @@ class SettingsDialog(QDialog):
         mod_gb.setLayout(mod_lay)
         lay.addWidget(mod_gb)
 
-        # Auto Features Group
         auto_gb = QGroupBox("Auto Features")
         auto_lay = QVBoxLayout()
         self.cb_auto_enhance = QRadioButton("Auto-Enhance Audio (Vocals Only)")
@@ -389,7 +332,6 @@ class SettingsDialog(QDialog):
         auto_gb.setLayout(auto_lay)
         lay.addWidget(auto_gb)
 
-        # Buttons
         btn_lay = QHBoxLayout()
         apply_btn = QPushButton("Apply & Restart UI")
         apply_btn.setStyleSheet("background:#007aff; color:white; padding:12px; border-radius:8px; font-weight:bold;")
@@ -405,27 +347,18 @@ class SettingsDialog(QDialog):
         logger.info("Settings dialog initialized with current settings")
 
     def browse_temp(self):
-        """
-        Browse and set temporary directory.
-        """
         d = QFileDialog.getExistingDirectory(self, "Select Temporary Files Folder")
         if d:
             self.tmp_edit.setText(d)
             logger.info(f"Temp dir changed to: {d}")
 
     def browse_models(self):
-        """
-        Browse and set models directory.
-        """
         d = QFileDialog.getExistingDirectory(self, "Select Whisper Models Folder")
         if d:
             self.mod_edit.setText(d)
             logger.info(f"Models dir changed to: {d}")
 
     def apply_close(self):
-        """
-        Apply changes, save settings, emit signal, and close.
-        """
         new_settings = {
             "ui_scale": self.scale_combo.currentText(),
             "theme": "Windows Default" if self.rb_win.isChecked() else
@@ -442,15 +375,11 @@ class SettingsDialog(QDialog):
         logger.info("Settings applied and dialog closed")
 
 # ========================================
-# ONLINE MODE HANDLER - Inlined for Security
+# ONLINE MODE HANDLER
 # ========================================
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
 class OnlineHandler:
-    """
-    Handles Google Drive integration for online Colab-based processing.
-    Includes polling, file upload/download, and cleanup.
-    """
     def __init__(self, parent_window):
         self.parent = parent_window
         self.service = None
@@ -464,9 +393,6 @@ class OnlineHandler:
         logger.info("OnlineHandler initialized")
 
     def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path):
-        """
-        Orchestrate online workflow: upload, generate notebook, launch Colab, poll for results.
-        """
         if not self.service:
             QMessageBox.warning(self.parent, "Error", "Please login with Google first.")
             logger.warning("Online mode attempted without service")
@@ -487,7 +413,6 @@ class OnlineHandler:
                     self.service.files().delete(fileId=f["id"]).execute()
                     logger.info(f"Deleted existing file: {f['id']}")
 
-            # Cleanup old notebook
             query = "name='NotyCaption_Generator.ipynb' and trashed=false"
             results = self.service.files().list(q=query, fields="files(id)").execute()
             for f in results.get("files", []):
@@ -552,9 +477,6 @@ class OnlineHandler:
             return False
 
     def get_or_create_folder(self, service, name):
-        """
-        Retrieve or create a Google Drive folder by name.
-        """
         query = f"name='{name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
         results = service.files().list(q=query, fields="files(id, name)").execute()
         files = results.get("files", [])
@@ -570,10 +492,6 @@ class OnlineHandler:
         return folder_id
 
     def upload_file(self, service, filepath, filename, parent_id=None):
-        """
-        Upload a file to Google Drive, optionally to a parent folder.
-        Supports resumable uploads for large files.
-        """
         metadata = {"name": filename}
         if parent_id:
             metadata["parents"] = [parent_id]
@@ -585,10 +503,6 @@ class OnlineHandler:
         return file_id
 
     def generate_notebook_content(self, audio_filename, words_per_line, fmt, output_name, lang_code='en', task='transcribe'):
-        """
-        Generate Jupyter notebook JSON content for Colab execution.
-        Includes all dependencies, transcription, and subtitle generation.
-        """
         def code_cell(lines):
             return {
                 "cell_type": "code",
@@ -701,10 +615,6 @@ class OnlineHandler:
         return notebook
 
     def poll_for_output(self):
-        """
-        Poll Google Drive for output file every 8 seconds.
-        Downloads and loads when found, with timeout handling.
-        """
         if not self.poll_output_name:
             logger.warning("Polling without output name set")
             return
@@ -715,7 +625,7 @@ class OnlineHandler:
         if self.poll_attempts > self.max_poll_attempts:
             self.poll_timer.stop()
             self.parent.is_generating = False
-            self.parent.gen_btn.setEnabled(True)
+            self.parent.enable_controls()
             QMessageBox.critical(
                 self.parent,
                 "Colab Timeout / Crash Detected",
@@ -761,7 +671,7 @@ class OnlineHandler:
                         logger.warning(f"Cleanup failed: {cleanup_err}")
                     self.poll_timer.stop()
                     self.parent.is_generating = False
-                    self.parent.gen_btn.setEnabled(True)
+                    self.parent.enable_controls()
                     QMessageBox.information(
                         self.parent,
                         "Success - Subtitles Ready",
@@ -783,9 +693,6 @@ class OnlineHandler:
             logger.warning(f"Poll network/drive error: {poll_err}")
 
     def cleanup_drive(self):
-        """
-        Clean up temporary files in Google Drive on app close.
-        """
         if not self.service:
             logger.info("No service for Drive cleanup")
             return
@@ -808,13 +715,9 @@ class OnlineHandler:
             logger.warning(f"Drive cleanup error: {cleanup_err}")
 
 # ========================================
-# AUDIO ENHANCER THREAD - Non-Blocking
+# AUDIO ENHANCER THREAD
 # ========================================
 class AudioEnhancerThread(QThread):
-    """
-    Thread for Spleeter-based vocal separation.
-    Emits progress, finish, and error signals for UI updates.
-    """
     progress = pyqtSignal(int)
     finished = pyqtSignal(str, bool)
     error = pyqtSignal(str)
@@ -823,21 +726,36 @@ class AudioEnhancerThread(QThread):
         super().__init__(parent)
         self.audio_file = audio_file
         self.temp_dir = temp_dir
+        self._lock = threading.Lock()
+        self._is_canceled = False
         logger.info(f"AudioEnhancerThread initialized for {audio_file}")
+
+    def cancel(self):
+        with self._lock:
+            self._is_canceled = True
+        logger.info("Audio enhancement cancellation requested")
+
+    def is_canceled(self):
+        with self._lock:
+            return self._is_canceled
 
     @pyqtSlot()
     def run(self):
-        """
-        Execute vocal separation in thread.
-        """
         try:
             self.progress.emit(10)
             logger.info("Initializing Spleeter separator")
+            
+            if self.is_canceled():
+                return
+                
             separator = Separator('spleeter:2stems')
             base_name = os.path.splitext(os.path.basename(self.audio_file))[0]
             output_dir = os.path.join(self.temp_dir, base_name)
 
             logger.info(f"Starting separation to {output_dir}")
+            if self.is_canceled():
+                return
+                
             separator.separate_to_file(
                 self.audio_file,
                 output_dir,
@@ -845,65 +763,48 @@ class AudioEnhancerThread(QThread):
             )
             self.progress.emit(80)
             logger.info("Separation phase complete")
+            
+            if self.is_canceled():
+                return
 
-            # Spleeter usually creates: output_dir / base_name / vocals.wav
             vocals_path = os.path.join(output_dir, base_name, 'vocals.wav')
-
             if not os.path.exists(vocals_path):
-                # Fallback: sometimes it's directly in output_dir
                 vocals_path = os.path.join(output_dir, 'vocals.wav')
                 if not os.path.exists(vocals_path):
                     raise FileNotFoundError(f"Vocals file not generated at {vocals_path}")
 
             self.progress.emit(95)
-            logger.info(f"Spleeter completed → vocals: {vocals_path}")
+            logger.info("Spleeter separation completed (GPU/CPU auto)")
             self.finished.emit(vocals_path, True)
-
         except Exception as enhance_err:
-            error_msg = f"Spleeter failed: {str(enhance_err)}"
+            error_msg = f"Spleeter error: {str(enhance_err)}"
             logger.error(f"Spleeter thread error: {traceback.format_exc()}")
             self.error.emit(error_msg)
-        
         finally:
-            self.progress.emit(100)  # Always reach 100%
-            logger.info("Enhancer thread finished (finally block)")
+            self.progress.emit(100)
+            logger.info("Enhancer thread finished")
 
 # ========================================
-# MODEL VALIDATION UTILITY
+# MODEL VALIDATION
 # ========================================
 def validate_model_file(model_path):
-    """
-    Validate if a model file is complete and not corrupted.
-    Returns True if file exists and size is reasonable (> 2.5 GB for large model).
-    """
     if not os.path.exists(model_path):
         return False
     
     try:
         file_size = os.path.getsize(model_path)
-        # large-v1 model should be around 2.87 GB (2,880,000,000 bytes)
-        # Allow some margin for different versions
-        expected_size_min = 2.5 * 1024 * 1024 * 1024  # 2.5 GB
-        expected_size_max = 3.0 * 1024 * 1024 * 1024  # 3.0 GB
+        expected_size_min = 2.5 * 1024 * 1024 * 1024
+        expected_size_max = 3.0 * 1024 * 1024 * 1024
         
-        if file_size < expected_size_min:
-            logger.warning(f"Model file too small: {file_size / (1024**3):.2f} GB")
-            return False
-        if file_size > expected_size_max:
-            logger.warning(f"Model file too large: {file_size / (1024**3):.2f} GB")
-            return False
-            
-        logger.info(f"Model file validated: {file_size / (1024**3):.2f} GB")
-        return True
+        if expected_size_min <= file_size <= expected_size_max:
+            logger.info(f"Model file validated: {file_size / (1024**3):.2f} GB")
+            return True
+        return False
     except Exception as e:
         logger.error(f"Error validating model file: {e}")
         return False
 
 def cleanup_corrupt_models(models_dir):
-    """
-    Remove corrupt or incomplete model files.
-    Returns True if any files were removed.
-    """
     if not os.path.exists(models_dir):
         return False
     
@@ -917,7 +818,6 @@ def cleanup_corrupt_models(models_dir):
     for model_path in model_files:
         if os.path.exists(model_path):
             try:
-                # Try to open the file to check if it's locked
                 with open(model_path, 'rb') as f:
                     pass
                 
@@ -931,11 +831,9 @@ def cleanup_corrupt_models(models_dir):
     return removed
 
 # ========================================
-# CUSTOM DOWNLOAD HANDLER FOR WHISPER - FIXED VERSION WITH PROPER CANCELLATION
+# CANCELLABLE WHISPER DOWNLOADER
 # ========================================
 class CancellableWhisperDownloader:
-    """Custom download handler that intercepts Whisper's download process"""
-    
     def __init__(self):
         self._canceled = False
         self._progress_callback = None
@@ -948,30 +846,23 @@ class CancellableWhisperDownloader:
         self._temp_path = None
         
     def cancel(self):
-        """Cancel the download immediately"""
         with self._lock:
             self._canceled = True
-            # Force close the response if it exists
             if self._response:
                 try:
                     self._response.close()
                 except:
                     pass
-        logger.info("Download cancellation requested - will stop immediately")
-        
+        logger.info("Download cancellation requested")
+
     def is_canceled(self):
-        """Check if download is canceled"""
         with self._lock:
             return self._canceled
         
     def patched_download_url_to_file(self, original_func, url, dst, *args, **kwargs):
-        """Patched version of download_url_to_file that checks for cancellation"""
-        
-        # Check cancellation before starting
         if self.is_canceled():
             raise Exception("DOWNLOAD_CANCELED_BY_USER")
         
-        # Store download info for potential cancellation
         self._current_download = {'url': url, 'dst': dst}
         self._download_completed = False
         self._temp_path = dst + '.tmp'
@@ -980,35 +871,26 @@ class CancellableWhisperDownloader:
             import urllib.request
             import os
             
-            # Create a custom opener with progress tracking
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            
             self._response = urllib.request.urlopen(req, timeout=30)
             
-            # Check cancellation after opening connection
             if self.is_canceled():
                 self._response.close()
                 raise Exception("DOWNLOAD_CANCELED_BY_USER")
             
-            # Get file size for progress tracking
             self._total_size = int(self._response.headers.get('Content-Length', 0))
             
-            # Download with chunk-by-chunk cancellation
             with open(self._temp_path, 'wb') as out_file:
                 self._downloaded = 0
-                chunk_size = 8192  # 8KB chunks
+                chunk_size = 8192
                 
                 while True:
-                    # Check cancellation before each chunk
                     if self.is_canceled():
                         logger.info("Cancellation detected during download")
                         out_file.close()
                         self._response.close()
                         if os.path.exists(self._temp_path):
-                            try:
-                                os.remove(self._temp_path)
-                            except:
-                                pass
+                            os.remove(self._temp_path)
                         raise Exception("DOWNLOAD_CANCELED_BY_USER")
                     
                     chunk = self._response.read(chunk_size)
@@ -1018,42 +900,31 @@ class CancellableWhisperDownloader:
                     out_file.write(chunk)
                     self._downloaded += len(chunk)
                     
-                    # Report progress
                     if self._progress_callback and self._total_size > 0:
                         progress = int((self._downloaded / self._total_size) * 100)
                         if progress < 100:
                             self._progress_callback(progress)
             
-            # Final cancellation check
             if self.is_canceled():
                 if os.path.exists(self._temp_path):
-                    try:
-                        os.remove(self._temp_path)
-                    except:
-                        pass
+                    os.remove(self._temp_path)
                 raise Exception("DOWNLOAD_CANCELED_BY_USER")
             
-            # Validate downloaded file
             if os.path.exists(self._temp_path):
                 file_size = os.path.getsize(self._temp_path)
-                if file_size < self._total_size * 0.99:  # Less than 99% of expected size
+                if file_size < self._total_size * 0.99:
                     logger.warning(f"Downloaded file size mismatch: {file_size} vs {self._total_size}")
                     os.remove(self._temp_path)
                     raise Exception("DOWNLOAD_INCOMPLETE")
             
-            # Move temp file to final destination
             if os.path.exists(dst):
                 os.remove(dst)
             os.rename(self._temp_path, dst)
             self._download_completed = True
                 
         except Exception as e:
-            # Clean up temp file on error
             if hasattr(self, '_temp_path') and self._temp_path and os.path.exists(self._temp_path):
-                try:
-                    os.remove(self._temp_path)
-                except:
-                    pass
+                os.remove(self._temp_path)
             raise e
         finally:
             self._current_download = None
@@ -1063,9 +934,6 @@ class CancellableWhisperDownloader:
         return dst
 
     def download_model(self, model_name, download_root, progress_callback=None):
-        """
-        Download Whisper model with cancellation support
-        """
         with self._lock:
             self._canceled = False
         self._progress_callback = progress_callback
@@ -1075,27 +943,21 @@ class CancellableWhisperDownloader:
         self._response = None
         self._temp_path = None
         
-        original_download = None  # Define early to avoid UnboundLocalError
+        original_download = None
         
         try:
             import torch.hub
             import whisper
             
-            # ─── CRITICAL FIX: Disable tqdm progress bar in frozen EXE ───
             if getattr(sys, 'frozen', False):
-                # Prevent tqdm from writing to potentially None sys.stderr
-                tqdm.disable = True  # ← Correct way (global disable)
-                # Optional: redirect stderr to null to be extra safe
+                tqdm.disable = True
                 sys.stderr = open(os.devnull, 'w')
             
-            # Save original function
             original_download = torch.hub.download_url_to_file
             
-            # Create patched function
             def patched_func(url, dst, *args, **kwargs):
                 return self.patched_download_url_to_file(original_download, url, dst, *args, **kwargs)
             
-            # Apply patch
             torch.hub.download_url_to_file = patched_func
             
             if self.is_canceled():
@@ -1103,13 +965,11 @@ class CancellableWhisperDownloader:
             
             logger.info(f"Starting download of {model_name} model to {download_root}")
             
-            # Clean up before starting
             model_path = os.path.join(download_root, f"{model_name}.pt")
             cleanup_corrupt_models(download_root)
             
-            # Whisper will now download without tqdm crash
             model = whisper.load_model(
-                model_name,
+                model_name, 
                 download_root=download_root,
                 in_memory=False
             )
@@ -1117,14 +977,10 @@ class CancellableWhisperDownloader:
             if self.is_canceled():
                 raise Exception("DOWNLOAD_CANCELED_BY_USER")
             
-            # Validate after download
             if not validate_model_file(model_path):
                 logger.warning("Downloaded model validation failed")
                 if os.path.exists(model_path):
-                    try:
-                        os.remove(model_path)
-                    except:
-                        pass
+                    os.remove(model_path)
                 raise Exception("Model validation failed")
                 
             logger.info("Model downloaded and validated successfully")
@@ -1137,44 +993,29 @@ class CancellableWhisperDownloader:
         except Exception as e:
             error_str = str(e)
             if "DOWNLOAD_CANCELED_BY_USER" in error_str:
-                logger.info("Download canceled by user")
+                logger.info("Download was canceled by user")
                 model_path = os.path.join(download_root, f"{model_name}.pt")
                 temp_path = model_path + '.tmp'
                 for path in [model_path, temp_path]:
                     if os.path.exists(path):
-                        try:
-                            os.remove(path)
-                        except:
-                            pass
+                        os.remove(path)
                 raise Exception("Download canceled by user")
             else:
                 logger.error(f"Download error: {e}")
                 raise
         finally:
-            # Always restore
             import torch.hub
             if original_download is not None:
                 torch.hub.download_url_to_file = original_download
-            
-            # Restore stderr if redirected
-            if getattr(sys, 'frozen', False) and hasattr(self, '_original_stderr'):
-                if not sys.stderr.closed:
-                    sys.stderr.close()
-                sys.stderr = self._original_stderr  # You need to save it earlier if using
-            
             self._response = None
             self._temp_path = None
 
 # ========================================
-# MODEL DOWNLOAD THREAD - Fixed with proper cancellation
+# MODEL DOWNLOAD THREAD
 # ========================================
 class ModelDownloadThread(QThread):
-    """
-    Thread for downloading Whisper model with proper cancellation.
-    Uses patched downloader that actually stops when canceled.
-    """
     progress = pyqtSignal(int)
-    finished = pyqtSignal(bool, str)  # success, message
+    finished = pyqtSignal(bool, str)
     canceled = pyqtSignal()
 
     def __init__(self, model_dir, parent=None):
@@ -1185,45 +1026,35 @@ class ModelDownloadThread(QThread):
         self._download_completed = False
         self._lock = threading.Lock()
         self._downloader = CancellableWhisperDownloader()
+        self.progress_info = {"downloaded": 0, "total": 0}
         logger.info(f"ModelDownloadThread initialized for {model_dir}")
 
     def cancel(self):
-        """
-        Set cancellation flag and stop the download immediately.
-        """
         with self._lock:
             if not self._is_canceled and self._download_started and not self._download_completed:
                 self._is_canceled = True
                 self._downloader.cancel()
-                logger.info("Model download cancellation requested - stopping download immediately")
+                logger.info("Model download cancellation requested")
                 
-                # Force thread to exit by terminating if it doesn't respond
                 if self.isRunning():
                     self.terminate()
                     self.wait(1000)
 
     def is_downloading(self):
-        """Check if download is in progress"""
         with self._lock:
             return self._download_started and not self._download_completed and not self._is_canceled
 
     @pyqtSlot()
     def run(self):
-        """
-        Download the model with proper progress tracking.
-        """
         try:
-            # Clean up corrupt models before starting
             cleanup_corrupt_models(self.model_dir)
             
             self.progress.emit(5)
             logger.info("Starting model download process")
             
-            # Check if model already exists and is valid
             model_path_v1 = os.path.join(self.model_dir, "large-v1.pt")
             model_path = os.path.join(self.model_dir, "large.pt")
             
-            # Check for valid existing model
             if validate_model_file(model_path_v1):
                 logger.info("Valid large-v1 model already exists, skipping download")
                 self.progress.emit(100)
@@ -1239,11 +1070,17 @@ class ModelDownloadThread(QThread):
                 self._download_started = True
                 self._download_completed = False
             
-            # Download with progress callback
+            # Custom progress callback to capture download info
+            def progress_callback(p):
+                if hasattr(self._downloader, '_downloaded') and hasattr(self._downloader, '_total_size'):
+                    self.progress_info["downloaded"] = self._downloader._downloaded
+                    self.progress_info["total"] = self._downloader._total_size
+                self.progress.emit(p)
+            
             model = self._downloader.download_model(
                 "large-v1",
                 self.model_dir,
-                progress_callback=lambda p: self.progress.emit(p)
+                progress_callback=progress_callback
             )
             
             with self._lock:
@@ -1253,7 +1090,6 @@ class ModelDownloadThread(QThread):
                     return
                 self._download_completed = True
             
-            # Final validation
             if validate_model_file(model_path_v1):
                 logger.info("Model downloaded and validated successfully")
                 self.progress.emit(100)
@@ -1268,7 +1104,7 @@ class ModelDownloadThread(QThread):
                 with self._lock:
                     self._download_completed = True
                 self.canceled.emit()
-            elif not self._is_canceled:  # Only report error if not canceled
+            elif not self._is_canceled:
                 error_msg = f"Download error: {str(dl_err)}"
                 logger.error(f"Model thread error: {traceback.format_exc()}")
                 self.finished.emit(False, error_msg)
@@ -1280,10 +1116,6 @@ class ModelDownloadThread(QThread):
 # MAIN APPLICATION WINDOW
 # ========================================
 class NotyCaptionWindow(QMainWindow):
-    """
-    Main application window with full UI, threads, and state management.
-    Handles all features: import, enhance, generate, playback, edit.
-    """
     def __init__(self):
         super().__init__()
         self.setWindowTitle("NotyCaption Pro - Secure AI Caption Generator by NotY215")
@@ -1297,7 +1129,6 @@ class NotyCaptionWindow(QMainWindow):
 
         self.settings = load_settings()
         
-        # Clean up corrupt models on startup
         cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
         
         self.apply_ui_scale()
@@ -1310,6 +1141,29 @@ class NotyCaptionWindow(QMainWindow):
         self.main_layout = QVBoxLayout()
         self.central_widget.setLayout(self.main_layout)
 
+        # Status bar
+        self.statusBar().showMessage("Ready")
+
+        self.top_layout = QHBoxLayout()
+        self.main_layout.addLayout(self.top_layout)
+
+        self.setup_left_panel()
+        self.setup_right_panel()
+        self.setup_bottom_panel()
+        self.setup_footer()
+
+        self.initialize_state()
+        self.online_handler = OnlineHandler(self)
+
+        self.enhancer_thread = None
+        self.model_download_thread = None
+        self.player_timer = QTimer(self)
+        self.player_timer.timeout.connect(self.update_timeline)
+        self.player_timer.start(50)
+        self._closing = False
+
+        self.load_existing_credentials()
+
         # Enhanced Overlay for full window coverage and blocking
         self.overlay = QFrame(self.central_widget)
         self.overlay.setStyleSheet("""
@@ -1318,6 +1172,7 @@ class NotyCaptionWindow(QMainWindow):
                 border: none;
             }
         """)
+        self.overlay.setAttribute(Qt.WA_TransparentForMouseEvents, False)
         self.overlay.setGeometry(0, 0, self.central_widget.width(), self.central_widget.height())
         self.overlay.hide()
 
@@ -1338,22 +1193,22 @@ class NotyCaptionWindow(QMainWindow):
         prog_lay = QVBoxLayout(self.progress_container)
 
         # Progress title
-        prog_title = QLabel("Downloading Whisper large-v1 Model")
-        prog_title.setStyleSheet("color: white; font-size: 18px; font-weight: bold; margin-bottom: 10px;")
-        prog_title.setAlignment(Qt.AlignCenter)
-        prog_lay.addWidget(prog_title)
+        self.prog_title = QLabel("Operation in Progress")
+        self.prog_title.setStyleSheet("color: white; font-size: 18px; font-weight: bold; margin-bottom: 10px;")
+        self.prog_title.setAlignment(Qt.AlignCenter)
+        prog_lay.addWidget(self.prog_title)
 
         # Progress info with download speed and size
-        self.prog_info = QLabel("Starting download...")
+        self.prog_info = QLabel("Starting...")
         self.prog_info.setStyleSheet("color: #cccccc; font-size: 12px; margin-bottom: 15px;")
         self.prog_info.setAlignment(Qt.AlignCenter)
         prog_lay.addWidget(self.prog_info)
 
         # Progress bar
-        self.download_prog = QProgressBar()
-        self.download_prog.setMinimum(0)
-        self.download_prog.setMaximum(100)
-        self.download_prog.setStyleSheet("""
+        self.overlay_prog = QProgressBar()
+        self.overlay_prog.setMinimum(0)
+        self.overlay_prog.setMaximum(100)
+        self.overlay_prog.setStyleSheet("""
             QProgressBar {
                 background: #3a3f44;
                 border: 2px solid #4a4f55;
@@ -1370,11 +1225,11 @@ class NotyCaptionWindow(QMainWindow):
                 border-radius: 8px;
             }
         """)
-        prog_lay.addWidget(self.download_prog)
+        prog_lay.addWidget(self.overlay_prog)
 
         # Cancel button
-        self.cancel_download_btn = QPushButton("Cancel Download")
-        self.cancel_download_btn.setStyleSheet("""
+        self.overlay_cancel_btn = QPushButton("Cancel Operation")
+        self.overlay_cancel_btn.setStyleSheet("""
             QPushButton {
                 background: #d32f2f;
                 color: white;
@@ -1397,45 +1252,110 @@ class NotyCaptionWindow(QMainWindow):
                 color: #999999;
             }
         """)
-        self.cancel_download_btn.clicked.connect(self.cancel_current_operation)
-        self.cancel_download_btn.setEnabled(False)
-        prog_lay.addWidget(self.cancel_download_btn, alignment=Qt.AlignCenter)
+        self.overlay_cancel_btn.clicked.connect(self.cancel_current_operation)
+        self.overlay_cancel_btn.setEnabled(False)
 
         self.overlay_layout.addWidget(self.progress_container)
+        self.overlay_layout.addWidget(self.overlay_cancel_btn, alignment=Qt.AlignCenter)
+        self.overlay_cancel_btn.setParent(self.overlay)
 
-        self.top_layout = QHBoxLayout()
-        self.main_layout.addLayout(self.top_layout)
+        # Download overlay for model download (separate from main overlay)
+        self.download_overlay = QFrame(self.central_widget)
+        self.download_overlay.setStyleSheet("""
+            QFrame {
+                background: rgba(0,0,0,0.85);
+                border: none;
+            }
+        """)
+        self.download_overlay.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+        self.download_overlay.setGeometry(0, 0, self.central_widget.width(), self.central_widget.height())
+        self.download_overlay.hide()
 
-        self.setup_left_panel()
-        self.setup_right_panel()
-        self.setup_bottom_panel()
-        self.setup_footer()
+        download_overlay_layout = QVBoxLayout(self.download_overlay)
+        download_overlay_layout.setAlignment(Qt.AlignCenter)
 
-        self.initialize_state()
-        self.online_handler = OnlineHandler(self)
+        download_container = QWidget()
+        download_container.setStyleSheet("""
+            QWidget {
+                background: #2d2d30;
+                border-radius: 15px;
+                padding: 20px;
+                max-width: 500px;
+            }
+        """)
+        download_lay = QVBoxLayout(download_container)
 
-        self.enhancer_thread = None
-        self.model_download_thread = None
-        self.player_timer = QTimer(self)
-        self.player_timer.timeout.connect(self.update_timeline)
-        self.player_timer.start(50)
-        self._closing = False
+        download_title = QLabel("Downloading Whisper large-v1 Model")
+        download_title.setStyleSheet("color: white; font-size: 18px; font-weight: bold; margin-bottom: 10px;")
+        download_title.setAlignment(Qt.AlignCenter)
+        download_lay.addWidget(download_title)
 
-        self.load_existing_credentials()
+        self.download_info = QLabel("Starting download...")
+        self.download_info.setStyleSheet("color: #cccccc; font-size: 12px; margin-bottom: 15px;")
+        self.download_info.setAlignment(Qt.AlignCenter)
+        download_lay.addWidget(self.download_info)
+
+        self.download_prog = QProgressBar()
+        self.download_prog.setMinimum(0)
+        self.download_prog.setMaximum(100)
+        self.download_prog.setStyleSheet("""
+            QProgressBar {
+                background: #3a3f44;
+                border: 2px solid #4a4f55;
+                border-radius: 10px;
+                text-align: center;
+                color: white;
+                font-weight: bold;
+                height: 35px;
+                min-width: 400px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #00c853, stop:0.5 #00b140, stop:1 #009624);
+                border-radius: 8px;
+            }
+        """)
+        download_lay.addWidget(self.download_prog)
+
+        self.download_cancel_btn = QPushButton("Cancel Download")
+        self.download_cancel_btn.setStyleSheet("""
+            QPushButton {
+                background: #d32f2f;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: bold;
+                padding: 12px 25px;
+                margin-top: 15px;
+                min-width: 200px;
+            }
+            QPushButton:hover {
+                background: #b71c1c;
+            }
+            QPushButton:pressed {
+                background: #9a0000;
+            }
+        """)
+        self.download_cancel_btn.clicked.connect(self.cancel_current_operation)
+        download_overlay_layout.addWidget(download_container)
+        download_overlay_layout.addWidget(self.download_cancel_btn, alignment=Qt.AlignCenter)
 
         logger.info("Main window fully initialized with enhanced overlay")
 
     def resizeEvent(self, event):
-        """
-        Handle window resize to update overlay geometry.
-        """
-        if self.overlay.isVisible():
+        """Handle window resize to update overlay geometry."""
+        if hasattr(self, 'overlay') and self.overlay.isVisible():
             self.overlay.setGeometry(0, 0, self.central_widget.width(), self.central_widget.height())
             self.overlay.raise_()
+            self.overlay_cancel_btn.raise_()
+        if hasattr(self, 'download_overlay') and self.download_overlay.isVisible():
+            self.download_overlay.setGeometry(0, 0, self.central_widget.width(), self.central_widget.height())
+            self.download_overlay.raise_()
+            self.download_cancel_btn.raise_()
         super().resizeEvent(event)
 
     def setup_left_panel(self):
-        """Setup left panel with caption editor and action buttons."""
         self.left_panel = QWidget()
         self.left_panel.setMaximumWidth(700)
         self.left_layout = QVBoxLayout()
@@ -1496,7 +1416,6 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Left panel setup complete")
 
     def setup_right_panel(self):
-        """Setup right panel with controls."""
         self.right_scroll = QScrollArea()
         self.right_scroll.setWidgetResizable(True)
         self.right_scroll.setStyleSheet("QScrollArea { border: none; }")
@@ -1599,7 +1518,6 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Right panel setup complete")
 
     def setup_bottom_panel(self):
-        """Setup bottom panel with playback controls and progress bars."""
         bottom_layout = QHBoxLayout()
         self.main_layout.addLayout(bottom_layout)
 
@@ -1642,6 +1560,17 @@ class NotyCaptionWindow(QMainWindow):
         self.gen_btn.clicked.connect(self.start_caption_generation)
         bottom_layout.addWidget(self.gen_btn)
 
+        # Cancel button in bottom panel (for non-overlay operations)
+        self.cancel_btn = QPushButton("⏹️ Cancel")
+        self.cancel_btn.setMinimumHeight(70)
+        self.cancel_btn.setStyleSheet("""
+            QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #d32f2f,stop:1 #b71c1c); color: white; border-radius: 15px; font-weight: bold; font-size: 16px; padding: 15px; min-width: 120px; }
+            QPushButton:disabled { background: #ccc; }
+        """)
+        self.cancel_btn.clicked.connect(self.cancel_current_operation)
+        self.cancel_btn.setEnabled(False)
+        bottom_layout.addWidget(self.cancel_btn)
+
         prog_container = QVBoxLayout()
         bottom_layout.addLayout(prog_container)
 
@@ -1663,7 +1592,6 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Bottom panel setup complete")
 
     def setup_footer(self):
-        """Setup footer with copyright and credits."""
         footer = QLabel("NotyCaption Pro • Secure Edition 2026 • All rights reserved by NotY215 • Powered by Whisper AI & Spleeter (GPU/CPU Auto)")
         footer.setAlignment(Qt.AlignCenter)
         footer.setStyleSheet("color: #6c757d; font-size: 10px; margin: 15px 0; padding: 10px; border-top: 1px solid #404040;")
@@ -1671,7 +1599,6 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Footer setup complete")
 
     def initialize_state(self):
-        """Initialize app state variables."""
         self.input_file = None
         self.audio_file = None
         self.output_folder = None
@@ -1700,7 +1627,6 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("App state initialized")
 
     def center_window(self):
-        """Center the window on screen."""
         qr = self.frameGeometry()
         cp = QApplication.desktop().availableGeometry().center()
         qr.moveCenter(cp)
@@ -1708,7 +1634,6 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Window centered on screen")
 
     def apply_ui_scale(self):
-        """Apply UI scaling based on settings."""
         scale_str = self.settings.get("ui_scale", "100%")
         try:
             scale = float(scale_str.rstrip("%")) / 100.0
@@ -1721,7 +1646,6 @@ class NotyCaptionWindow(QMainWindow):
             logger.warning(f"UI scale apply failed: {scale_err}")
 
     def apply_theme(self):
-        """Apply selected theme."""
         theme = self.settings.get("theme", "Dark")
         if theme == "Light":
             pal = QPalette()
@@ -1752,7 +1676,7 @@ class NotyCaptionWindow(QMainWindow):
         logger.info(f"Theme applied: {theme}")
 
     def freeze_ui(self, freeze=True, message="Processing... Please wait or cancel"):
-        """Freeze/unfreeze UI + show custom message"""
+        """Freeze/unfreeze UI + show custom message - CANCEL BUTTON ALWAYS ENABLED"""
         widgets_to_disable = [
             self.import_btn,
             self.enhance_btn,
@@ -1766,85 +1690,31 @@ class NotyCaptionWindow(QMainWindow):
             self.words_spin,
             self.format_combo,
             self.out_folder_edit,
+            self.timeline
         ]
 
+        # Disable only main widgets - NEVER disable cancel buttons
         for w in widgets_to_disable:
             if hasattr(w, 'setEnabled'):
                 w.setEnabled(not freeze)
 
-        self.timeline.setEnabled(not freeze)
-
         if freeze:
             self.overlay.show()
             self.overlay.raise_()
-            self.statusBar().showMessage(message, 0)  # Show custom message
+            self.overlay_cancel_btn.raise_()
+            self.overlay_cancel_btn.setEnabled(True)
+            self.overlay_cancel_btn.setFocus()
+            self.prog_title.setText(message)
+            self.statusBar().showMessage(message, 0)
         else:
             self.overlay.hide()
             self.statusBar().clearMessage()
 
-
     def show_cancel_only(self, show=True):
         """Make sure only cancel button is interactive on overlay"""
-        self.cancel_download_btn.setEnabled(show)
-
-    def cancel_current_operation(self):
-        """Stop whatever long operation is currently running"""
-        logger.info("Cancel button pressed - stopping current operation")
-
-        stopped = False
-
-        # Stop Spleeter enhancement if running
-        if hasattr(self, 'enhancer_thread') and self.enhancer_thread and self.enhancer_thread.isRunning():
-            logger.info("Canceling Spleeter enhancement...")
-            self.enhancer_thread.terminate()  # Force stop the thread
-            self.enhancer_thread.wait(2000)   # Wait up to 2 seconds
-            self.enhancer_thread = None
-            self.enhance_btn.setEnabled(True)
-            stopped = True
-
-        # Stop model download if running
-        if hasattr(self, 'model_download_thread') and self.model_download_thread and self.model_download_thread.isRunning():
-            logger.info("Canceling model download...")
-            self.model_download_thread.cancel()
-            # Call existing handler to clean up UI
-            self.on_model_download_canceled()
-            stopped = True
-
-        # Add here later if you have a generation thread
-
-        # Always unfreeze UI and clear status
-        self.freeze_ui(False)
-        
-        if stopped:
-            self.statusBar().showMessage("Operation canceled by user", 5000)
-        else:
-            self.statusBar().showMessage("Nothing to cancel", 3000)
-
-        # Optional: Ask to confirm if you want, but for now keep it simple
-
-        def cancel_current_operation(self):
-            reply = QMessageBox.question(
-                self,
-                "Cancel Operation",
-                "Are you sure you want to cancel the current operation?\nProgress will be lost.",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            if reply != QMessageBox.Yes:
-                return
-            
-            # Cancel the download immediately
-            if self.model_download_thread:
-                self.model_download_thread.cancel()
-                
-                # Force UI update immediately
-                self.overlay.hide()
-                self.on_model_download_canceled()
-                
-            logger.info("User confirmed download cancellation")
+        self.overlay_cancel_btn.setEnabled(show)
 
     def open_settings_dialog(self):
-        """Open and manage settings dialog."""
         logger.info("Opening settings dialog")
         dlg = SettingsDialog(self.settings, self)
         dlg.settingsChanged.connect(self.update_from_settings)
@@ -1854,7 +1724,6 @@ class NotyCaptionWindow(QMainWindow):
             logger.info("Settings dialog canceled")
 
     def update_from_settings(self, new_settings):
-        """Update app with new settings."""
         self.settings = new_settings
         self.apply_ui_scale()
         self.apply_theme()
@@ -1865,44 +1734,41 @@ class NotyCaptionWindow(QMainWindow):
         logger.info("Settings updated and applied globally")
 
     def update_download_button_visibility(self):
-        """Show/hide download button based on mode and model existence."""
         if self.mode == "online":
             self.download_btn.setVisible(False)
             logger.info("Download button hidden in online mode")
             return
 
-        # Check for valid model files
         model_dir = self.settings.get("models_dir", CURRENT_DIR)
         model_path_v1 = os.path.join(model_dir, "large-v1.pt")
         model_path = os.path.join(model_dir, "large.pt")
         
-        # Validate existing models
         exists = validate_model_file(model_path_v1) or validate_model_file(model_path)
         self.download_btn.setVisible(not exists)
         logger.info(f"Valid model exists: {exists} → Button visible: {not exists}")
 
     def closeEvent(self, event: QCloseEvent):
-        """Handle app close: cleanup threads, files, Drive, save settings."""
         logger.info("App close event triggered")
         self._closing = True
         
-        # Stop player and timers
         self.player.stop()
         self.player_timer.stop()
-        self.online_handler.poll_timer.stop()
+        if hasattr(self, 'online_handler'):
+            self.online_handler.poll_timer.stop()
 
-        # Cancel any ongoing download and wait for it to finish
         if self.model_download_thread and self.model_download_thread.isRunning():
             logger.info("Download thread still running, canceling and waiting...")
             self.model_download_thread.cancel()
-            
-            # Wait for thread to finish (with timeout)
-            if not self.model_download_thread.wait(3000):  # Wait up to 3 seconds
+            if not self.model_download_thread.wait(3000):
                 logger.warning("Download thread did not finish in time, terminating...")
                 self.model_download_thread.terminate()
                 self.model_download_thread.wait(1000)
 
-        # Clean up temp files
+        if self.enhancer_thread and self.enhancer_thread.isRunning():
+            logger.info("Enhancer thread still running, terminating...")
+            self.enhancer_thread.terminate()
+            self.enhancer_thread.wait(1000)
+
         if self.audio_file and self.audio_file.endswith(".temp.wav") and os.path.exists(self.audio_file):
             try:
                 os.remove(self.audio_file)
@@ -1917,20 +1783,9 @@ class NotyCaptionWindow(QMainWindow):
             except Exception as rm_err:
                 logger.warning(f"Last temp removal failed: {rm_err}")
 
-        if self.online_handler.service:
+        if hasattr(self, 'online_handler') and self.online_handler.service:
             self.online_handler.cleanup_drive()
-        
-        # Force TensorFlow cleanup before exit
-        try:
-            tf.keras.backend.clear_session()
-            del tf  # Try to release TF
-        except:
-            pass
 
-        logger.info("=== NotyCaption Secure Shutdown ===")
-        event.accept()
-
-        # Clean up corrupt models on exit (only if not locked)
         try:
             cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
         except Exception as e:
@@ -1943,10 +1798,9 @@ class NotyCaptionWindow(QMainWindow):
         event.accept()
 
     def initiate_google_login(self):
-        """Initiate Google OAuth flow for Drive access."""
         client_secrets = load_client_secrets()
         if not client_secrets:
-            msg = "Google client secrets not found.\nIn dev mode, ensure client.json exists.\nIn EXE mode, rebuild with build.bat to encrypt client.notycapz."
+            msg = "Google client secrets not found.\nIn dev mode, ensure client.json exists.\nIn EXE mode, rebuild with build.py to encrypt client.notycapz."
             logger.warning(msg)
             QMessageBox.warning(self, "Missing Credentials", msg)
             return
@@ -1975,7 +1829,6 @@ class NotyCaptionWindow(QMainWindow):
                 logger.info("Temp client file removed")
 
     def load_existing_credentials(self):
-        """Load and refresh existing Google credentials from token.json."""
         token_path = "token.json"
         if os.path.exists(token_path):
             try:
@@ -1995,7 +1848,6 @@ class NotyCaptionWindow(QMainWindow):
                     logger.info("Invalid token removed")
 
     def on_mode_change(self, text):
-        """Handle mode switch between local and online."""
         self.mode = "online" if "Online" in text else "normal"
         self.settings["last_mode"] = self.mode
         save_settings(self.settings)
@@ -2003,12 +1855,10 @@ class NotyCaptionWindow(QMainWindow):
         logger.info(f"Mode switched to: {self.mode}")
 
     def load_whisper_model(self):
-        """Load Whisper large-v1 model with error handling."""
         try:
             model_dir = self.settings.get("models_dir", CURRENT_DIR)
             logger.info(f"Loading Whisper large-v1 from: {model_dir} (Auto GPU/CPU)")
             
-            # Clean up corrupt models before loading
             cleanup_corrupt_models(model_dir)
             
             model = whisper.load_model("large-v1", download_root=model_dir)
@@ -2016,10 +1866,10 @@ class NotyCaptionWindow(QMainWindow):
             return model
         except Exception as load_err:
             logger.error(f"Whisper load failed: {traceback.format_exc()}")
+            QMessageBox.critical(self, "Model Load Error", f"Failed to load Whisper model:\n{str(load_err)}")
             raise RuntimeError(f"Model load error: {str(load_err)}")
 
     def on_media_status_changed(self, status):
-        """Handle media status changes for playback UI."""
         if status == QMediaPlayer.LoadedMedia:
             self.play_btn.setEnabled(True)
             logger.info("Media loaded for playback")
@@ -2029,28 +1879,23 @@ class NotyCaptionWindow(QMainWindow):
             logger.warning("Media status invalid")
 
     def on_position_changed(self, position):
-        """Update caption highlighting based on playback position."""
         self.update_caption_highlight(position)
 
     def on_duration_changed(self, duration):
-        """Set timeline range based on media duration."""
         self.duration_ms = duration
         self.timeline.setRange(0, duration)
         logger.debug(f"Media duration set: {duration} ms")
 
     def on_player_error(self, error):
-        """Handle media player errors with user notification."""
         err_str = self.player.errorString() or "Unknown error"
         logger.warning(f"Media player error: {err_str}")
         QMessageBox.warning(self, "Playback Error", f"Audio playback failed:\n{err_str}")
 
     def update_timeline(self):
-        """Update timeline slider during playback."""
         if self.duration_ms > 0 and self.player.state() == QMediaPlayer.PlayingState:
             self.timeline.setValue(self.player.position())
 
     def toggle_media_playback(self):
-        """Toggle play/pause for loaded media."""
         if not self.audio_file or not os.path.exists(self.audio_file):
             QMessageBox.warning(self, "No Audio", "No audio file loaded or file was deleted.")
             logger.warning("Play clicked → no audio_file")
@@ -2086,7 +1931,6 @@ class NotyCaptionWindow(QMainWindow):
                                 "3. Re-import or restart app")
 
     def check_playback_status(self):
-        """Verify playback status after load attempt."""
         status = self.player.mediaStatus()
         logger.info(f"Playback status check: {status}")
         if status == QMediaPlayer.LoadedMedia:
@@ -2101,12 +1945,10 @@ class NotyCaptionWindow(QMainWindow):
                                 "• Install/update K-Lite Codec Pack (Basic)")
 
     def seek_media_position(self, position):
-        """Seek to position in media."""
         self.player.setPosition(position)
         logger.debug(f"Seek to: {position} ms")
 
     def update_caption_highlight(self, ms):
-        """Highlight current caption line during playback."""
         if not self.subtitles or not self.generated:
             return
         sec = ms / 1000.0
@@ -2114,15 +1956,16 @@ class NotyCaptionWindow(QMainWindow):
         cursor = QTextCursor(doc)
         cursor.beginEditBlock()
 
-        # Reset all highlights
         cursor.select(QTextCursor.Document)
         fmt = QTextCharFormat()
         fmt.setBackground(QColor(0, 0, 0, 0))
         cursor.setCharFormat(fmt)
 
-        # Highlight current line
         for i, sub in enumerate(self.subtitles):
-            if sub["start"].total_seconds() <= sec < sub["end"].total_seconds():
+            start_sec = sub["start"].total_seconds() if isinstance(sub["start"], timedelta) else sub["start"]
+            end_sec = sub["end"].total_seconds() if isinstance(sub["end"], timedelta) else sub["end"]
+            
+            if start_sec <= sec < end_sec:
                 cursor.movePosition(QTextCursor.Start)
                 cursor.movePosition(QTextCursor.NextBlock, QTextCursor.MoveAnchor, i)
                 cursor.movePosition(QTextCursor.StartOfBlock)
@@ -2137,11 +1980,8 @@ class NotyCaptionWindow(QMainWindow):
         logger.debug(f"Highlighted line for time: {sec:.2f}s")
 
     def import_media_file(self):
-        """Import video or audio, extract/convert to WAV temp file."""
         logger.info("Media import dialog opened")
-        filter_str = (
-            "Media Files (*.mp4 *.mkv *.avi *.mov *.webm *.flv *.wmv *.mp3 *.wav *.m4a *.aac *.flac *.ogg *.wma *.amr *.opus)"
-        )
+        filter_str = "Media Files (*.mp4 *.mkv *.avi *.mov *.webm *.flv *.wmv *.mp3 *.wav *.m4a *.aac *.flac *.ogg *.wma *.amr *.opus)"
         path, _ = QFileDialog.getOpenFileName(self, "Import Video or Audio", "", filter_str)
         if not path:
             logger.info("Import cancelled by user")
@@ -2157,7 +1997,6 @@ class NotyCaptionWindow(QMainWindow):
         temp_name = os.path.splitext(os.path.basename(path))[0] + ".temp.wav"
         new_temp = os.path.join(temp_dir, temp_name)
 
-        # Cleanup previous temp
         if self.last_temp_wav and os.path.exists(self.last_temp_wav):
             try:
                 os.remove(self.last_temp_wav)
@@ -2201,7 +2040,6 @@ class NotyCaptionWindow(QMainWindow):
         QMessageBox.information(self, "Import Complete", "Media imported and audio ready for processing.")
 
     def debug_audio_file(self):
-        """Log audio file details for debugging."""
         if not self.audio_file:
             logger.info("No audio file set")
             return
@@ -2210,7 +2048,6 @@ class NotyCaptionWindow(QMainWindow):
         logger.info(f"Size: {os.path.getsize(self.audio_file) / 1024 / 1024:.2f} MB")
 
     def browse_output_folder(self):
-        """Browse and set output folder."""
         d = QFileDialog.getExistingDirectory(self, "Select Output Folder")
         if d:
             self.output_folder = d
@@ -2224,22 +2061,21 @@ class NotyCaptionWindow(QMainWindow):
             return
 
         logger.info("Starting vocal enhancement...")
-        self.enhance_btn.setEnabled(False)
-        self.freeze_ui(True, "Enhancing vocals with Spleeter... (this may take a while)")  # ← Custom message
-
+        self.freeze_ui(True, "Enhancing vocals with Spleeter... (this may take a while)")
         temp_dir = self.settings.get("temp_dir", tempfile.gettempdir())
         self.enhancer_thread = AudioEnhancerThread(self.audio_file, temp_dir, self)
-        self.enhancer_thread.progress.connect(self.prog_main.setValue)
+        self.enhancer_thread.progress.connect(self.on_enhance_progress)
         self.enhancer_thread.finished.connect(self.on_enhance_finished)
         self.enhancer_thread.error.connect(self.on_enhance_error)
         self.enhancer_thread.start()
         logger.info("Enhancer thread started")
 
-    @pyqtSlot(str, bool)
-    def on_enhance_finished(self, vocals_path, success):
-        self.freeze_ui(False)  # ← UNFREEZE
-        self.statusBar().clearMessage()
+    def on_enhance_progress(self, value):
+        self.overlay_prog.setValue(value)
+        self.prog_main.setValue(value)
 
+    def on_enhance_finished(self, vocals_path, success):
+        self.freeze_ui(False)
         if success:
             base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
             final_name = f"{base}_enhanced_vocals.wav"
@@ -2252,41 +2088,18 @@ class NotyCaptionWindow(QMainWindow):
                 logger.info(f"Enhanced audio saved: {final_path}")
                 QMessageBox.information(self, "Enhancement Complete", f"Vocals-only audio created:\n{final_path}")
             except Exception as move_err:
-                logger.error(f"Move failed: {move_err}")
+                logger.error(f"Move enhanced file failed: {move_err}")
                 QMessageBox.warning(self, "Save Error", str(move_err))
-        else:
-            logger.warning("Enhancement failed")
-
-        self.enhance_btn.setEnabled(True)
         self.enhancer_thread = None
+        logger.info("Enhancer thread finished")
 
-
-    @pyqtSlot(str)
     def on_enhance_error(self, error_msg):
-        self.freeze_ui(False)  # ← UNFREEZE
-        self.statusBar().clearMessage()
+        self.freeze_ui(False)
         logger.error(f"Enhancement error: {error_msg}")
         QMessageBox.critical(self, "Enhancement Failed", error_msg)
-        self.enhance_btn.setEnabled(True)
         self.enhancer_thread = None
 
-    def _check_cancel_complete(self):
-        """Check if cancellation is complete"""
-        if self._closing:
-            return
-            
-        if self.model_download_thread and self.model_download_thread.isRunning():
-            # Still running, force terminate
-            logger.warning("Download thread still running after cancel - forcing termination")
-            self.model_download_thread.terminate()
-            self.model_download_thread.wait(1000)
-            self.on_model_download_canceled()
-        else:
-            # Thread finished, ensure UI is updated
-            self.on_model_download_canceled()
-
     def open_model_download_dialog(self):
-        """Open dialog for model download options."""
         if self._closing:
             return
             
@@ -2337,7 +2150,7 @@ class NotyCaptionWindow(QMainWindow):
 
         selected = next(i for i, rb in enumerate(rbs) if rb.isChecked())
 
-        if selected == 2:  # Link existing
+        if selected == 2:
             file_path, _ = QFileDialog.getOpenFileName(self, "Select large-v1.pt", "", "PyTorch Model (*.pt)")
             if file_path and os.path.basename(file_path) == "large-v1.pt":
                 if validate_model_file(file_path):
@@ -2353,7 +2166,7 @@ class NotyCaptionWindow(QMainWindow):
                 QMessageBox.warning(self, "Invalid File", "Please select a file named exactly 'large-v1.pt'")
             return
 
-        if selected == 1:  # Custom folder
+        if selected == 1:
             path = QFileDialog.getExistingDirectory(self, "Select Folder to Download Model")
             if not path:
                 logger.info("Custom folder selection canceled")
@@ -2367,26 +2180,23 @@ class NotyCaptionWindow(QMainWindow):
         save_settings(self.settings)
         self.update_download_button_visibility()
 
-        # ─── NEW: FREEZE UI BEFORE STARTING DOWNLOAD ───
-        self.freeze_ui(True, "Downloading Whisper large-v1 model... (5–30 min)")  # ← Updated with custom message
-
-        # Show overlay with cancel button only
-        self.overlay.setGeometry(0, 0, self.central_widget.width(), self.central_widget.height())
-        self.overlay.raise_()
-        self.overlay.show()
-        
+        # Show download overlay
+        self.download_overlay.show()
+        self.download_overlay.raise_()
+        self.download_cancel_btn.raise_()
         self.download_prog.setValue(0)
-        self.download_prog.setFormat("%p%")
-        self.prog_info.setText("Starting download...")
-        self.cancel_download_btn.setEnabled(True)
-        self._cancel_processed = False
+        self.download_info.setText("Starting download...")
+        self.download_cancel_btn.setEnabled(True)
 
-        # Disable other buttons (already done by freeze_ui, but keeping for clarity)
-        self.gen_btn.setEnabled(False)
-        self.import_btn.setEnabled(False)
-        self.enhance_btn.setEnabled(False)
-        self.play_btn.setEnabled(False)
-        self.edit_btn.setEnabled(False)
+        # Disable main controls but keep cancel button functional
+        widgets_to_disable = [
+            self.import_btn, self.enhance_btn, self.gen_btn, self.play_btn, 
+            self.edit_btn, self.download_btn, self.login_button, self.mode_combo,
+            self.lang_combo, self.words_spin, self.format_combo, self.timeline
+        ]
+        for w in widgets_to_disable:
+            if hasattr(w, 'setEnabled'):
+                w.setEnabled(False)
 
         self.model_download_thread = ModelDownloadThread(path, self)
         self.model_download_thread.progress.connect(self.on_download_progress)
@@ -2397,58 +2207,44 @@ class NotyCaptionWindow(QMainWindow):
         logger.info(f"Model download started to: {path}")
 
     def on_download_progress(self, value):
-        """Update download progress display."""
         if self._closing:
             return
             
         self.download_prog.setValue(value)
         
-        # Format the progress info nicely with error handling
         try:
             if (hasattr(self, 'model_download_thread') and 
                 self.model_download_thread and 
-                hasattr(self.model_download_thread, '_downloader')):
+                hasattr(self.model_download_thread, 'progress_info')):
                 
-                downloader = self.model_download_thread._downloader
+                info = self.model_download_thread.progress_info
                 
-                # Check if attributes exist before using them
-                if hasattr(downloader, '_downloaded') and hasattr(downloader, '_total_size'):
-                    downloaded_mb = downloader._downloaded / (1024 * 1024)
-                    total_mb = downloader._total_size / (1024 * 1024)
-                    
-                    if total_mb > 0:
-                        self.prog_info.setText(f"Downloading... {downloaded_mb:.1f} MB / {total_mb:.1f} MB ({value}%)")
-                    else:
-                        self.prog_info.setText(f"Downloading... ({value}%)")
+                if info["total"] > 0:
+                    downloaded_mb = info["downloaded"] / (1024 * 1024)
+                    total_mb = info["total"] / (1024 * 1024)
+                    self.download_info.setText(f"Downloading... {downloaded_mb:.1f} MB / {total_mb:.1f} MB ({value}%)")
                 else:
-                    self.prog_info.setText(f"Downloading... ({value}%)")
+                    self.download_info.setText(f"Downloading... ({value}%)")
             else:
-                self.prog_info.setText(f"Downloading... ({value}%)")
+                self.download_info.setText(f"Downloading... ({value}%)")
         except Exception as e:
-            # Fallback to simple progress display if any error occurs
             logger.debug(f"Progress display error: {e}")
-            self.prog_info.setText(f"Downloading... ({value}%)")
-        
-        self.download_prog.setFormat(f"{value}%")
+            self.download_info.setText(f"Downloading... ({value}%)")
 
-    @pyqtSlot(bool, str)
     def on_model_download_finished(self, success, message):
-
-        self.freeze_ui(False)
-        self.statusBar().clearMessage()
-        """Handle download completion."""
-        if self._closing:
-            return
-            
-        self.overlay.hide()
-        # Re-enable buttons
-        self.gen_btn.setEnabled(True)
-        self.import_btn.setEnabled(True)
-        self.enhance_btn.setEnabled(bool(self.audio_file))
-        self.play_btn.setEnabled(bool(self.audio_file))
-        self.edit_btn.setEnabled(self.generated)
-        self.cancel_download_btn.setEnabled(False)
-        logger.info("UI buttons re-enabled after download")
+        self.download_overlay.hide()
+        
+        # Re-enable controls
+        widgets_to_enable = [
+            self.import_btn, self.enhance_btn, self.gen_btn, self.play_btn, 
+            self.edit_btn, self.download_btn, self.login_button, self.mode_combo,
+            self.lang_combo, self.words_spin, self.format_combo, self.timeline
+        ]
+        for w in widgets_to_enable:
+            if hasattr(w, 'setEnabled'):
+                w.setEnabled(True)
+        
+        self.download_cancel_btn.setEnabled(False)
         
         if success:
             self.update_download_button_visibility()
@@ -2460,27 +2256,22 @@ class NotyCaptionWindow(QMainWindow):
         self.model_download_thread = None
         self._cancel_processed = False
 
-    @pyqtSlot()
     def on_model_download_canceled(self):
-        self.freeze_ui(False)
-        self.statusBar().clearMessage()
-        """Handle cancellation: hide overlay, re-enable buttons."""
-        # Ensure we only process once
-        if self._closing or self._cancel_processed:
-            return
-        self._cancel_processed = True
+        self.download_overlay.hide()
         
-        self.overlay.hide()
-        # Re-enable buttons
-        self.gen_btn.setEnabled(True)
-        self.import_btn.setEnabled(True)
-        self.enhance_btn.setEnabled(bool(self.audio_file))
-        self.play_btn.setEnabled(bool(self.audio_file))
-        self.edit_btn.setEnabled(self.generated)
-        self.cancel_download_btn.setEnabled(False)
+        # Re-enable controls
+        widgets_to_enable = [
+            self.import_btn, self.enhance_btn, self.gen_btn, self.play_btn, 
+            self.edit_btn, self.download_btn, self.login_button, self.mode_combo,
+            self.lang_combo, self.words_spin, self.format_combo, self.timeline
+        ]
+        for w in widgets_to_enable:
+            if hasattr(w, 'setEnabled'):
+                w.setEnabled(True)
+        
+        self.download_cancel_btn.setEnabled(False)
         logger.info("UI buttons re-enabled after cancel")
         
-        # Clean up any remaining corrupt files (don't try to delete locked files)
         try:
             cleanup_corrupt_models(self.settings.get("models_dir", CURRENT_DIR))
         except Exception as e:
@@ -2506,34 +2297,25 @@ class NotyCaptionWindow(QMainWindow):
             return
 
         self.is_generating = True
-        self.gen_btn.setEnabled(False)
-
-        # Freeze with custom message
         self.freeze_ui(True, "Generating captions... Please wait or cancel")
-
         self.prog_main.setValue(0)
         self.prog_frame.setValue(0)
         logger.info("=== Secure Caption Generation Started ===")
 
         auto_enhance = self.settings.get("auto_enhance", False)
-        enhanced_path = None
         if auto_enhance:
             logger.info("Auto-enhancing audio before generation...")
-            self.enhance_btn.setEnabled(False)
             temp_dir = self.settings.get("temp_dir", tempfile.gettempdir())
             self.enhancer_thread = AudioEnhancerThread(self.audio_file, temp_dir, self)
-            self.enhancer_thread.progress.connect(lambda v: self.prog_main.setValue(v // 2))
-            self.enhancer_thread.finished.connect(lambda p, s: self.on_auto_enhance_done(p, s))
-            self.enhancer_thread.error.connect(lambda e: self.on_auto_enhance_error(e))
+            self.enhancer_thread.progress.connect(lambda v: self.overlay_prog.setValue(v // 2))
+            self.enhancer_thread.finished.connect(self.on_auto_enhance_done)
+            self.enhancer_thread.error.connect(self.on_auto_enhance_error)
             self.enhancer_thread.start()
             return
 
-        self.proceed_to_transcription(enhanced_path)
+        self.proceed_to_transcription(self.audio_file)
 
     def on_auto_enhance_done(self, vocals_path, success):
-        self.statusBar().clearMessage()
-        self.gen_btn.setEnabled(True)
-        """Handle auto-enhance for generation."""
         if success:
             enhanced_path = vocals_path
             base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
@@ -2543,27 +2325,20 @@ class NotyCaptionWindow(QMainWindow):
             self.audio_file = final_path
             self.play_btn.setEnabled(True)
             logger.info(f"Auto-enhanced: {final_path}")
+            self.proceed_to_transcription(final_path)
         else:
-            enhanced_path = None
             logger.warning("Auto-enhance failed, using original audio")
+            self.proceed_to_transcription(self.audio_file)
 
         self.enhancer_thread = None
-        self.enhance_btn.setEnabled(True)
-        self.proceed_to_transcription(enhanced_path)
 
     def on_auto_enhance_error(self, error):
-
-        self.statusBar().clearMessage()
-        self.gen_btn.setEnabled(True)
-        """Handle auto-enhance error for generation."""
         logger.error(f"Auto-enhance error: {error}")
         QMessageBox.warning(self, "Auto-Enhance Failed", error)
         self.enhancer_thread = None
-        self.enhance_btn.setEnabled(True)
-        self.proceed_to_transcription(None)
+        self.proceed_to_transcription(self.audio_file)
 
-    def proceed_to_transcription(self, enhanced_path):
-        """Proceed to transcription after optional enhancement."""
+    def proceed_to_transcription(self, audio_to_use):
         lang_text = self.lang_combo.currentText()
         lang_code = "ja" if "Japanese" in lang_text else "en"
         task = "translate" if "Translate" in lang_text else "transcribe"
@@ -2571,9 +2346,7 @@ class NotyCaptionWindow(QMainWindow):
         wpl = self.words_spin.value()
         fmt_map = {
             "📄 .SRT (Standard)": ".srt",
-            ".srt (standard)":    ".srt",
-            "🎨 .ASS (Advanced)":  ".ass",
-            ".ass":               ".ass",
+            "🎨 .ASS (Advanced)": ".ass",
         }
         fmt = fmt_map.get(self.format_combo.currentText(), ".srt")
         base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
@@ -2583,29 +2356,27 @@ class NotyCaptionWindow(QMainWindow):
             reply = QMessageBox.question(self, "Overwrite File?", f"File exists:\n{out_path}\nOverwrite?", QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.No:
                 self.is_generating = False
-                self.gen_btn.setEnabled(True)
+                self.freeze_ui(False)
                 logger.info("Overwrite canceled")
                 return
 
         logger.info(f"Transcription params: lang={lang_code}, task={task}, wpl={wpl}, fmt={fmt}, out={out_path}")
 
-        self.prog_main.setValue(10)
-        audio_to_use = enhanced_path or self.audio_file
+        self.overlay_prog.setValue(10)
 
         if self.mode == "online":
             success = self.online_handler.handle_online(audio_to_use, lang_code, task, wpl, fmt, base, out_path)
             if not success:
                 self.is_generating = False
-                self.gen_btn.setEnabled(True)
+                self.freeze_ui(False)
         else:
             self.perform_local_transcription(audio_to_use, lang_code, task, wpl, fmt, out_path)
 
     def perform_local_transcription(self, audio_path, lang_code, task, wpl, fmt, out_path):
-        """Perform local Whisper transcription."""
         try:
-            self.prog_main.setValue(20)
+            self.overlay_prog.setValue(20)
             model = self.load_whisper_model()
-            self.prog_main.setValue(30)
+            self.overlay_prog.setValue(30)
 
             logger.info("Starting local transcription...")
             result = model.transcribe(
@@ -2615,7 +2386,7 @@ class NotyCaptionWindow(QMainWindow):
                 word_timestamps=True,
                 verbose=False
             )
-            self.prog_main.setValue(80)
+            self.overlay_prog.setValue(80)
             logger.info("Transcription complete")
 
             self.subtitles = []
@@ -2658,7 +2429,7 @@ class NotyCaptionWindow(QMainWindow):
                     self.display_lines.append(line_text)
                     idx += 1
 
-            self.prog_main.setValue(90)
+            self.overlay_prog.setValue(90)
 
             preview_text = "\n\n".join(self.display_lines)
             self.caption_edit.setText(preview_text)
@@ -2666,7 +2437,7 @@ class NotyCaptionWindow(QMainWindow):
             self.edit_btn.setEnabled(True)
 
             self.save_subtitles_to_file(self.subtitles, fmt, out_path)
-            self.prog_main.setValue(100)
+            self.overlay_prog.setValue(100)
 
             logger.info(f"Local generation saved: {out_path}")
             QMessageBox.information(self, "Generation Complete", f"Captions generated and saved:\n{out_path}")
@@ -2676,12 +2447,9 @@ class NotyCaptionWindow(QMainWindow):
             QMessageBox.critical(self, "Generation Error", f"Local processing failed:\n{str(trans_err)}")
         finally:
             self.is_generating = False
-            self.gen_btn.setEnabled(True)
-            self.freeze_ui(False)               
-            self.statusBar().clearMessage()     
+            self.freeze_ui(False)
 
     def save_subtitles_to_file(self, subtitles, fmt, out_path):
-        """Save subtitles to SRT or ASS file."""
         try:
             if fmt == ".srt":
                 srt_file = pysrt.SubRipFile()
@@ -2714,7 +2482,6 @@ class NotyCaptionWindow(QMainWindow):
             raise
 
     def load_downloaded_subtitles(self, file_path):
-        """Load subtitles from downloaded file for preview."""
         logger.info(f"Loading online subtitles: {file_path}")
         try:
             self.subtitles = []
@@ -2752,7 +2519,6 @@ class NotyCaptionWindow(QMainWindow):
             QMessageBox.warning(self, "Load Error", f"Preview load failed:\n{str(load_err)}")
 
     def toggle_edit_mode(self):
-        """Toggle editable mode for captions."""
         if not self.generated:
             logger.warning("Edit toggled without generated captions")
             return
@@ -2766,7 +2532,6 @@ class NotyCaptionWindow(QMainWindow):
         logger.info(f"Edit mode: {'enabled' if self.edit_active else 'disabled'}")
 
     def apply_edited_captions(self):
-        """Apply user edits to subtitles."""
         text_content = self.caption_edit.toPlainText().strip()
         edited_lines = [line.strip() for line in text_content.split('\n\n') if line.strip()]
 
@@ -2785,15 +2550,82 @@ class NotyCaptionWindow(QMainWindow):
         QMessageBox.information(self, "Saved", "Edits applied successfully.")
 
     def refresh_caption_preview(self):
-        """Refresh caption display from current lines."""
         preview = "\n\n".join(self.display_lines)
         self.caption_edit.setText(preview)
         logger.debug("Caption preview refreshed")
 
+    def disable_controls(self):
+        widgets = [
+            self.import_btn, self.enhance_btn, self.gen_btn, self.play_btn, 
+            self.edit_btn, self.download_btn, self.login_button, self.mode_combo,
+            self.lang_combo, self.words_spin, self.format_combo, self.timeline
+        ]
+        for w in widgets:
+            if hasattr(w, 'setEnabled'):
+                w.setEnabled(False)
+        self.cancel_btn.setEnabled(True)
+
+    def enable_controls(self):
+        widgets = [
+            self.import_btn, self.enhance_btn, self.gen_btn, self.play_btn, 
+            self.edit_btn, self.download_btn, self.login_button, self.mode_combo,
+            self.lang_combo, self.words_spin, self.format_combo, self.timeline
+        ]
+        for w in widgets:
+            if hasattr(w, 'setEnabled'):
+                w.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
+
+    def cancel_current_operation(self):
+        logger.info("Cancel button pressed - stopping current operation")
+
+        stopped = False
+
+        if self.enhancer_thread and self.enhancer_thread.isRunning():
+            logger.info("Canceling Spleeter enhancement...")
+            self.enhancer_thread.cancel()
+            self.enhancer_thread.terminate()
+            self.enhancer_thread.wait(2000)
+            self.enhancer_thread = None
+            stopped = True
+            self.freeze_ui(False)
+
+        if self.model_download_thread and self.model_download_thread.isRunning():
+            logger.info("Canceling model download...")
+            self.model_download_thread.cancel()
+            self._check_cancel_complete()
+            stopped = True
+
+        if self.is_generating:
+            self.is_generating = False
+            self.freeze_ui(False)
+            stopped = True
+
+        if not self.overlay.isVisible() and not self.download_overlay.isVisible():
+            self.enable_controls()
+        
+        if stopped:
+            self.statusBar().showMessage("Operation canceled by user", 5000)
+        else:
+            self.statusBar().showMessage("Nothing to cancel", 3000)
+
+    def _check_cancel_complete(self):
+        """Check if cancellation is complete"""
+        if self._closing:
+            return
+            
+        if self.model_download_thread and self.model_download_thread.isRunning():
+            logger.warning("Download thread still running after cancel - forcing termination")
+            self.model_download_thread.terminate()
+            self.model_download_thread.wait(1000)
+            self.on_model_download_canceled()
+        else:
+            self.on_model_download_canceled()
+
+# ========================================
+# MAIN ENTRY
+# ========================================
 if __name__ == "__main__":
-    """
-    Main entry point: single instance check, app setup, run.
-    """
     instance = SingleInstance()
     if instance.is_already_running():
         logger.warning("Duplicate instance detected")
@@ -2803,14 +2635,12 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setApplicationName("NotyCaption Pro")
     app.setOrganizationName("NotY215")
+    app.setStyle('Fusion')
 
     icon_path = resource_path('App.ico')
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
         logger.info("Global app icon set")
-
-    app.setStyle('Fusion')
-    logger.info("Fusion style applied globally")
 
     logger.info("Launching secure NotyCaption...")
     window = NotyCaptionWindow()
