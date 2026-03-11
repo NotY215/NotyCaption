@@ -25,7 +25,7 @@ from PyQt5.QtWidgets import (
     QMenu, QShortcut, QToolTip, QApplication
 )
 from PyQt5.QtGui import QIcon, QColor, QTextCharFormat, QTextCursor, QFont, QPalette, QCloseEvent, QPixmap, QBrush, QLinearGradient, QDesktopServices, QKeySequence
-from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal, QThread, pyqtSlot, QPropertyAnimation, QEasingCurve, QProcess, QSettings
+from PyQt5.QtCore import QTimer, Qt, QUrl, QDir, pyqtSignal, QThread, pyqtSlot, QPropertyAnimation, QEasingCurve, QProcess, QSettings, QTranslator, QLocale
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 from moviepy.editor import VideoFileClip, AudioFileClip
 import pysrt
@@ -42,6 +42,18 @@ from spleeter.separator import Separator
 import warnings
 import platform
 import math
+import GPUtil
+import psutil
+import cpuinfo
+
+# Optional Windows-specific imports (don't break if missing)
+try:
+    import win32gui
+    import win32process
+    import win32con
+    WIN32_AVAILABLE = True
+except ImportError:
+    WIN32_AVAILABLE = False
 
 # Force charset_normalizer to pure Python
 os.environ["CHARSET_NORMALIZER_USE_MYPYC"] = "0"
@@ -61,6 +73,1040 @@ os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 import tensorflow as tf
 tf.get_logger().setLevel('ERROR')
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+
+# ========================================
+# TRANSLATIONS
+# ========================================
+TRANSLATIONS = {
+    'en': {
+        # Window Title
+        'window_title': 'NotyCaption Pro - Secure AI Caption Generator by NotY215',
+        
+        # Menu and Status
+        'ready': 'Ready',
+        'processing': 'Processing...',
+        'canceled': 'Canceled',
+        'completed': 'Completed',
+        'failed': 'Failed',
+        
+        # Buttons
+        'edit_captions': '✏️ Edit Captions',
+        'save_exit_edit': '💾 Save & Exit Edit',
+        'settings': '⚙️ Settings',
+        'download_model': '📥 Download large-v1 Model',
+        'login_google': '🔐 Login with Google (Enable Online Mode)',
+        'import_media': '📁 Import Video / Audio File',
+        'browse_output': '📂 Browse Output Folder',
+        'enhance_audio': '🎤 Enhance Audio (Vocals Only - Spleeter)',
+        'play_pause': '▶️ Play / ⏸️ Pause',
+        'playing': '⏸️ Playing...',
+        'paused': '▶️ Play / ⏸️ Pause',
+        'generate': '🚀 Generate Captions',
+        'cancel': 'Cancel Operation',
+        'force_cancel': '⚠️ Force Cancel (Emergency)',
+        'reopen_notebook': '🔗 Reopen Notebook',
+        'copy_url': '📋 Copy URL',
+        
+        # Labels
+        'ai_caption_editor': 'AI-Powered Caption Editor',
+        'processing_mode': 'Processing Mode:',
+        'language': 'Language:',
+        'words_per_line': 'Words per Line:',
+        'output_format': 'Output Format:',
+        'output_folder': 'Output Folder:',
+        'status': 'Status:',
+        'notebook_url': 'Notebook URL:',
+        'not_available': 'Not available',
+        'idle': 'Idle',
+        'speed': 'Speed:',
+        'eta': 'ETA:',
+        'downloading': 'Downloading...',
+        'uploading': 'Uploading...',
+        'waiting': 'Waiting...',
+        
+        # Modes
+        'normal_mode': '🖥️ Normal (Local Whisper)',
+        'online_mode': '☁️ Online (Colab + Drive)',
+        
+        # Languages for transcription
+        'english_transcribe': '🇺🇸 English (Transcribe)',
+        'japanese_translate': '🇯🇵 Japanese → English (Translate)',
+        'chinese_transcribe': '🇨🇳 Chinese (Transcribe)',
+        'french_transcribe': '🇫🇷 French (Transcribe)',
+        'german_transcribe': '🇩🇪 German (Transcribe)',
+        'spanish_transcribe': '🇪🇸 Spanish (Transcribe)',
+        'russian_transcribe': '🇷🇺 Russian (Transcribe)',
+        'arabic_transcribe': '🇸🇦 Arabic (Transcribe)',
+        'hindi_transcribe': '🇮🇳 Hindi (Transcribe)',
+        'bengali_transcribe': '🇧🇩 Bengali (Transcribe)',
+        'urdu_transcribe': '🇵🇰 Urdu (Transcribe)',
+        'portuguese_transcribe': '🇵🇹 Portuguese (Transcribe)',
+        'italian_transcribe': '🇮🇹 Italian (Transcribe)',
+        'dutch_transcribe': '🇳🇱 Dutch (Transcribe)',
+        'polish_transcribe': '🇵🇱 Polish (Transcribe)',
+        'turkish_transcribe': '🇹🇷 Turkish (Transcribe)',
+        'vietnamese_transcribe': '🇻🇳 Vietnamese (Transcribe)',
+        'thai_transcribe': '🇹🇭 Thai (Transcribe)',
+        'korean_transcribe': '🇰🇷 Korean (Transcribe)',
+        
+        # Formats
+        'srt_format': '📄 .SRT (Standard)',
+        'ass_format': '🎨 .ASS (Advanced)',
+        
+        # Messages
+        'import_complete': 'Import Complete',
+        'import_success': 'Media imported and audio ready for processing.',
+        'enhancement_complete': 'Enhancement Complete',
+        'enhancement_success': 'Vocals-only audio created:',
+        'generation_complete': 'Generation Complete',
+        'generation_success': 'Captions generated and saved:',
+        'download_complete': 'Download Complete',
+        'download_success': 'Model downloaded successfully!',
+        'download_failed': 'Download Failed',
+        'cancel_confirm': 'Confirm Cancel',
+        'cancel_confirm_msg': 'Are you sure you want to cancel the current operation?\n\nAny progress will be lost.',
+        'force_cancel_confirm': '⚠️ FORCE CANCEL ⚠️\n\nThis will immediately terminate the current operation.\nThis may cause corrupted files or unstable behavior.\n\nOnly use this if the operation is completely frozen.\n\nAre you absolutely sure?',
+        'no_audio': 'No Audio',
+        'no_audio_msg': 'No audio file loaded or file was deleted.',
+        'no_media': 'No Media',
+        'no_media_msg': 'Import audio/video first.',
+        'overwrite': 'Overwrite File?',
+        'overwrite_msg': 'File exists:\n{}\nOverwrite?',
+        'login_required': 'Please login with Google first.',
+        'conversion_warning': 'Conversion Warning',
+        'conversion_warning_msg': 'Using original file (may be slower).',
+        'playback_error': 'Playback Error',
+        'colab_timeout': 'Colab Timeout / Crash Detected',
+        'colab_timeout_msg': 'No result file appeared in Google Drive after long wait.',
+        'network_error': 'Network Error',
+        'model_load_error': 'Model Load Error',
+        
+        # Settings Dialog
+        'settings_title': 'NotyCaption Settings - Secure Edition',
+        'general_tab': 'General',
+        'paths_tab': 'Paths',
+        'features_tab': 'Features',
+        'advanced_tab': 'Advanced',
+        'language_tab': 'Language',
+        'visual_theme': 'Visual Theme',
+        'system_default': 'System Default (Windows)',
+        'light_mode': 'Light Mode',
+        'dark_mode': 'Dark Mode (Modern)',
+        'ui_scaling': 'UI Scaling',
+        'scale_factor': 'Scale Factor:',
+        'temp_dir': 'Temporary Files Directory',
+        'temp_dir_placeholder': 'Default: System Temp',
+        'browse_folder': 'Browse Folder',
+        'models_dir': 'Whisper Models Directory',
+        'models_dir_placeholder': 'Default: App Root',
+        'auto_features': 'Auto Features',
+        'auto_enhance': 'Auto-Enhance Audio (Vocals Only)',
+        'default_language': 'Default Language:',
+        'default_wpl': 'Default Words per Line',
+        'words': 'Words:',
+        'default_format': 'Default Output Format',
+        'format': 'Format:',
+        'cancel_options': 'Cancel Options',
+        'confirm_cancel': 'Ask for confirmation before canceling',
+        'force_cancel_timeout': 'Show force cancel after:',
+        'seconds': ' seconds',
+        'max_retry': 'Max retry attempts:',
+        'ui_options': 'UI Options',
+        'minimize_tray': 'Minimize to system tray',
+        'show_tooltips': 'Show tooltips',
+        'ui_language': 'UI Language:',
+        'apply_restart': 'Apply & Restart UI',
+        
+        # Hardware Detection
+        'hardware_acceleration': 'Hardware Acceleration',
+        'cuda_available': 'CUDA Available',
+        'cuda_not_available': 'CUDA Not Available',
+        'gpu_info': 'GPU: {}',
+        'cpu_info': 'CPU: {}',
+        'memory_info': 'Memory: {:.1f} GB',
+        'using_gpu': 'Using GPU Acceleration',
+        'using_cpu': 'Using CPU (Fallback Mode)',
+    },
+    
+    'zh': {
+        'window_title': 'NotyCaption Pro - NotY215的安全AI字幕生成器',
+        'ready': '就绪',
+        'processing': '处理中...',
+        'canceled': '已取消',
+        'completed': '已完成',
+        'failed': '失败',
+        'edit_captions': '✏️ 编辑字幕',
+        'save_exit_edit': '💾 保存并退出编辑',
+        'settings': '⚙️ 设置',
+        'download_model': '📥 下载 large-v1 模型',
+        'login_google': '🔐 使用Google登录（启用在线模式）',
+        'import_media': '📁 导入视频/音频文件',
+        'browse_output': '📂 浏览输出文件夹',
+        'enhance_audio': '🎤 增强音频（仅人声 - Spleeter）',
+        'play_pause': '▶️ 播放 / ⏸️ 暂停',
+        'playing': '⏸️ 播放中...',
+        'paused': '▶️ 播放 / ⏸️ 暂停',
+        'generate': '🚀 生成字幕',
+        'cancel': '取消操作',
+        'force_cancel': '⚠️ 强制取消（紧急）',
+        'reopen_notebook': '🔗 重新打开笔记本',
+        'copy_url': '📋 复制网址',
+        'ai_caption_editor': 'AI驱动字幕编辑器',
+        'processing_mode': '处理模式:',
+        'language': '语言:',
+        'words_per_line': '每行词数:',
+        'output_format': '输出格式:',
+        'output_folder': '输出文件夹:',
+        'status': '状态:',
+        'notebook_url': '笔记本网址:',
+        'not_available': '不可用',
+        'idle': '空闲',
+        'speed': '速度:',
+        'eta': '剩余时间:',
+        'downloading': '下载中...',
+        'uploading': '上传中...',
+        'waiting': '等待中...',
+        'normal_mode': '🖥️ 普通模式（本地Whisper）',
+        'online_mode': '☁️ 在线模式（Colab + 云端硬盘）',
+        'english_transcribe': '🇺🇸 英语（转录）',
+        'japanese_translate': '🇯🇵 日语 → 英语（翻译）',
+        'chinese_transcribe': '🇨🇳 中文（转录）',
+        'srt_format': '📄 .SRT（标准）',
+        'ass_format': '🎨 .ASS（高级）',
+        'import_complete': '导入完成',
+        'import_success': '媒体已导入，音频准备就绪。',
+        'enhancement_complete': '增强完成',
+        'enhancement_success': '已创建纯人声音频:',
+        'generation_complete': '生成完成',
+        'generation_success': '字幕已生成并保存:',
+        'download_complete': '下载完成',
+        'download_success': '模型下载成功！',
+        'download_failed': '下载失败',
+        'cancel_confirm': '确认取消',
+        'cancel_confirm_msg': '确定要取消当前操作吗？\n\n任何进度都将丢失。',
+        'force_cancel_confirm': '⚠️ 强制取消 ⚠️\n\n这将立即终止当前操作。\n可能导致文件损坏或不稳定行为。\n\n仅在操作完全卡顿时使用。\n\n你确定吗？',
+        'no_audio': '无音频',
+        'no_audio_msg': '未加载音频文件或文件已被删除。',
+        'no_media': '无媒体',
+        'no_media_msg': '请先导入音频/视频。',
+        'overwrite': '覆盖文件？',
+        'overwrite_msg': '文件已存在：\n{}\n要覆盖吗？',
+        'login_required': '请先使用Google登录。',
+        'conversion_warning': '转换警告',
+        'conversion_warning_msg': '使用原始文件（可能较慢）。',
+        'playback_error': '播放错误',
+        'colab_timeout': 'Colab超时/崩溃检测',
+        'colab_timeout_msg': '长时间等待后未在Google云端硬盘中找到结果文件。',
+        'network_error': '网络错误',
+        'model_load_error': '模型加载错误',
+        'settings_title': 'NotyCaption设置 - 安全版',
+        'general_tab': '常规',
+        'paths_tab': '路径',
+        'features_tab': '功能',
+        'advanced_tab': '高级',
+        'language_tab': '语言',
+        'visual_theme': '视觉主题',
+        'system_default': '系统默认（Windows）',
+        'light_mode': '亮色模式',
+        'dark_mode': '暗色模式（现代）',
+        'ui_scaling': '界面缩放',
+        'scale_factor': '缩放比例:',
+        'temp_dir': '临时文件目录',
+        'temp_dir_placeholder': '默认：系统临时目录',
+        'browse_folder': '浏览文件夹',
+        'models_dir': 'Whisper模型目录',
+        'models_dir_placeholder': '默认：应用根目录',
+        'auto_features': '自动功能',
+        'auto_enhance': '自动增强音频（仅人声）',
+        'default_language': '默认语言:',
+        'default_wpl': '默认每行词数',
+        'words': '词数:',
+        'default_format': '默认输出格式',
+        'format': '格式:',
+        'cancel_options': '取消选项',
+        'confirm_cancel': '取消前询问确认',
+        'force_cancel_timeout': '显示强制取消在:',
+        'seconds': '秒后',
+        'max_retry': '最大重试次数:',
+        'ui_options': '界面选项',
+        'minimize_tray': '最小化到系统托盘',
+        'show_tooltips': '显示提示',
+        'ui_language': '界面语言:',
+        'apply_restart': '应用并重启界面',
+        'hardware_acceleration': '硬件加速',
+        'cuda_available': 'CUDA可用',
+        'cuda_not_available': 'CUDA不可用',
+        'gpu_info': 'GPU: {}',
+        'cpu_info': 'CPU: {}',
+        'memory_info': '内存: {:.1f} GB',
+        'using_gpu': '使用GPU加速',
+        'using_cpu': '使用CPU（回退模式）',
+    },
+    
+    'fr': {
+        'window_title': 'NotyCaption Pro - Générateur de Sous-titres IA Sécurisé par NotY215',
+        'ready': 'Prêt',
+        'processing': 'Traitement...',
+        'canceled': 'Annulé',
+        'completed': 'Terminé',
+        'failed': 'Échoué',
+        'edit_captions': '✏️ Modifier les sous-titres',
+        'save_exit_edit': '💾 Sauvegarder et quitter',
+        'settings': '⚙️ Paramètres',
+        'download_model': '📥 Télécharger le modèle large-v1',
+        'login_google': '🔐 Connexion Google (Mode en ligne)',
+        'import_media': '📁 Importer un fichier vidéo/audio',
+        'browse_output': '📂 Parcourir le dossier de sortie',
+        'enhance_audio': '🎤 Améliorer l\'audio (Voix seulement)',
+        'play_pause': '▶️ Lecture / ⏸️ Pause',
+        'playing': '⏸️ Lecture...',
+        'paused': '▶️ Lecture / ⏸️ Pause',
+        'generate': '🚀 Générer les sous-titres',
+        'cancel': 'Annuler l\'opération',
+        'force_cancel': '⚠️ Annulation forcée (Urgence)',
+        'reopen_notebook': '🔗 Rouvrir le notebook',
+        'copy_url': '📋 Copier l\'URL',
+        'ai_caption_editor': 'Éditeur de sous-titres IA',
+        'processing_mode': 'Mode de traitement:',
+        'language': 'Langue:',
+        'words_per_line': 'Mots par ligne:',
+        'output_format': 'Format de sortie:',
+        'output_folder': 'Dossier de sortie:',
+        'status': 'Statut:',
+        'notebook_url': 'URL du notebook:',
+        'not_available': 'Non disponible',
+        'idle': 'Inactif',
+        'speed': 'Vitesse:',
+        'eta': 'ETA:',
+        'downloading': 'Téléchargement...',
+        'uploading': 'Téléversement...',
+        'waiting': 'Attente...',
+        'normal_mode': '🖥️ Normal (Whisper local)',
+        'online_mode': '☁️ En ligne (Colab + Drive)',
+        'english_transcribe': '🇺🇸 Anglais (Transcrire)',
+        'japanese_translate': '🇯🇵 Japonais → Anglais (Traduire)',
+        'french_transcribe': '🇫🇷 Français (Transcrire)',
+        'srt_format': '📄 .SRT (Standard)',
+        'ass_format': '🎨 .ASS (Avancé)',
+        'import_complete': 'Import terminé',
+        'import_success': 'Média importé, audio prêt.',
+        'enhancement_complete': 'Amélioration terminée',
+        'enhancement_success': 'Audio voix seulement créé:',
+        'generation_complete': 'Génération terminée',
+        'generation_success': 'Sous-titres générés et sauvegardés:',
+        'download_complete': 'Téléchargement terminé',
+        'download_success': 'Modèle téléchargé avec succès!',
+        'download_failed': 'Échec du téléchargement',
+        'cancel_confirm': 'Confirmer l\'annulation',
+        'cancel_confirm_msg': 'Êtes-vous sûr de vouloir annuler l\'opération?\n\nToute progression sera perdue.',
+        'force_cancel_confirm': '⚠️ ANNULATION FORCÉE ⚠️\n\nCela terminera immédiatement l\'opération.\nCela peut causer des fichiers corrompus.\n\nÀ utiliser seulement si l\'opération est bloquée.\n\nÊtes-vous absolument sûr?',
+        'settings_title': 'Paramètres NotyCaption - Édition Sécurisée',
+        'general_tab': 'Général',
+        'paths_tab': 'Chemins',
+        'features_tab': 'Fonctionnalités',
+        'advanced_tab': 'Avancé',
+        'language_tab': 'Langue',
+        'visual_theme': 'Thème visuel',
+        'system_default': 'Défaut système (Windows)',
+        'light_mode': 'Mode clair',
+        'dark_mode': 'Mode sombre (Moderne)',
+        'ui_scaling': 'Échelle d\'interface',
+        'scale_factor': 'Facteur d\'échelle:',
+        'temp_dir': 'Dossier temporaire',
+        'browse_folder': 'Parcourir',
+        'models_dir': 'Dossier des modèles Whisper',
+        'auto_features': 'Fonctions automatiques',
+        'auto_enhance': 'Amélioration audio auto (voix seulement)',
+        'default_language': 'Langue par défaut:',
+        'ui_language': 'Langue d\'interface:',
+        'apply_restart': 'Appliquer et redémarrer',
+    },
+    
+    'de': {
+        'window_title': 'NotyCaption Pro - Sicherer KI-Untertitelgenerator von NotY215',
+        'ready': 'Bereit',
+        'processing': 'Verarbeitung...',
+        'canceled': 'Abgebrochen',
+        'completed': 'Abgeschlossen',
+        'failed': 'Fehlgeschlagen',
+        'edit_captions': '✏️ Untertitel bearbeiten',
+        'save_exit_edit': '💾 Speichern & beenden',
+        'settings': '⚙️ Einstellungen',
+        'download_model': '📥 large-v1 Modell herunterladen',
+        'login_google': '🔐 Google Login (Online-Modus)',
+        'import_media': '📁 Video/Audio importieren',
+        'browse_output': '📂 Ausgabeordner durchsuchen',
+        'enhance_audio': '🎤 Audio verbessern (nur Stimme)',
+        'play_pause': '▶️ Abspielen / ⏸️ Pause',
+        'playing': '⏸️ Wiedergabe...',
+        'paused': '▶️ Abspielen / ⏸️ Pause',
+        'generate': '🚀 Untertitel generieren',
+        'cancel': 'Vorgang abbrechen',
+        'force_cancel': '⚠️ Erzwingen (Notfall)',
+        'reopen_notebook': '🔗 Notebook neu öffnen',
+        'copy_url': '📋 URL kopieren',
+        'ai_caption_editor': 'KI-gestützter Untertitel-Editor',
+        'processing_mode': 'Verarbeitungsmodus:',
+        'language': 'Sprache:',
+        'words_per_line': 'Wörter pro Zeile:',
+        'output_format': 'Ausgabeformat:',
+        'output_folder': 'Ausgabeordner:',
+        'status': 'Status:',
+        'notebook_url': 'Notebook-URL:',
+        'not_available': 'Nicht verfügbar',
+        'idle': 'Leerlauf',
+        'speed': 'Geschwindigkeit:',
+        'eta': 'Verbleibend:',
+        'downloading': 'Herunterladen...',
+        'uploading': 'Hochladen...',
+        'waiting': 'Warten...',
+        'normal_mode': '🖥️ Normal (Lokales Whisper)',
+        'online_mode': '☁️ Online (Colab + Drive)',
+        'english_transcribe': '🇺🇸 Englisch (Transkribieren)',
+        'japanese_translate': '🇯🇵 Japanisch → Englisch (Übersetzen)',
+        'german_transcribe': '🇩🇪 Deutsch (Transkribieren)',
+        'srt_format': '📄 .SRT (Standard)',
+        'ass_format': '🎨 .ASS (Erweitert)',
+        'settings_title': 'NotyCaption Einstellungen - Sichere Ausgabe',
+        'general_tab': 'Allgemein',
+        'paths_tab': 'Pfade',
+        'features_tab': 'Funktionen',
+        'advanced_tab': 'Erweitert',
+        'language_tab': 'Sprache',
+        'visual_theme': 'Visuelles Thema',
+        'system_default': 'Systemstandard (Windows)',
+        'light_mode': 'Heller Modus',
+        'dark_mode': 'Dunkler Modus (Modern)',
+        'ui_scaling': 'UI-Skalierung',
+        'scale_factor': 'Skalierungsfaktor:',
+        'temp_dir': 'Temporärer Ordner',
+        'browse_folder': 'Durchsuchen',
+        'models_dir': 'Whisper-Modelle Ordner',
+        'auto_features': 'Auto-Funktionen',
+        'auto_enhance': 'Audio automatisch verbessern (nur Stimme)',
+        'default_language': 'Standardsprache:',
+        'ui_language': 'UI-Sprache:',
+        'apply_restart': 'Anwenden & Neustarten',
+    },
+    
+    'hi': {
+        'window_title': 'NotyCaption Pro - NotY215 द्वारा सुरक्षित AI कैप्शन जनरेटर',
+        'ready': 'तैयार',
+        'processing': 'प्रक्रिया चल रही है...',
+        'canceled': 'रद्द किया गया',
+        'completed': 'पूर्ण हुआ',
+        'failed': 'विफल',
+        'edit_captions': '✏️ कैप्शन संपादित करें',
+        'save_exit_edit': '💾 सहेजें और बाहर निकलें',
+        'settings': '⚙️ सेटिंग्स',
+        'download_model': '📥 large-v1 मॉडल डाउनलोड करें',
+        'login_google': '🔐 Google से लॉगिन करें (ऑनलाइन मोड)',
+        'import_media': '📁 वीडियो/ऑडियो फ़ाइल आयात करें',
+        'browse_output': '📂 आउटपुट फ़ोल्डर ब्राउज़ करें',
+        'enhance_audio': '🎤 ऑडियो बढ़ाएं (केवल स्वर)',
+        'play_pause': '▶️ चलाएं / ⏸️ रोकें',
+        'playing': '⏸️ चल रहा है...',
+        'paused': '▶️ चलाएं / ⏸️ रोकें',
+        'generate': '🚀 कैप्शन जनरेट करें',
+        'cancel': 'ऑपरेशन रद्द करें',
+        'force_cancel': '⚠️ जबरन रद्द करें (आपातकालीन)',
+        'reopen_notebook': '🔗 नोटबुक फिर से खोलें',
+        'copy_url': '📋 URL कॉपी करें',
+        'ai_caption_editor': 'AI-संचालित कैप्शन संपादक',
+        'processing_mode': 'प्रसंस्करण मोड:',
+        'language': 'भाषा:',
+        'words_per_line': 'प्रति पंक्ति शब्द:',
+        'output_format': 'आउटपुट फॉर्मेट:',
+        'output_folder': 'आउटपुट फ़ोल्डर:',
+        'status': 'स्थिति:',
+        'notebook_url': 'नोटबुक URL:',
+        'not_available': 'उपलब्ध नहीं',
+        'idle': 'निष्क्रिय',
+        'speed': 'गति:',
+        'eta': 'शेष समय:',
+        'downloading': 'डाउनलोड हो रहा है...',
+        'uploading': 'अपलोड हो रहा है...',
+        'waiting': 'प्रतीक्षा कर रहा है...',
+        'normal_mode': '🖥️ सामान्य (स्थानीय Whisper)',
+        'online_mode': '☁️ ऑनलाइन (Colab + Drive)',
+        'english_transcribe': '🇺🇸 अंग्रेज़ी (ट्रांसक्राइब)',
+        'hindi_transcribe': '🇮🇳 हिंदी (ट्रांसक्राइब)',
+        'settings_title': 'NotyCaption सेटिंग्स - सुरक्षित संस्करण',
+        'general_tab': 'सामान्य',
+        'paths_tab': 'पथ',
+        'features_tab': 'सुविधाएँ',
+        'advanced_tab': 'उन्नत',
+        'language_tab': 'भाषा',
+        'ui_language': 'इंटरफ़ेस भाषा:',
+    },
+    
+    'bn': {
+        'window_title': 'NotyCaption Pro - NotY215 দ্বারা সুরক্ষিত AI ক্যাপশন জেনারেটর',
+        'ready': 'প্রস্তুত',
+        'processing': 'প্রক্রিয়াকরণ চলছে...',
+        'canceled': 'বাতিল করা হয়েছে',
+        'completed': 'সম্পন্ন হয়েছে',
+        'failed': 'ব্যর্থ হয়েছে',
+        'edit_captions': '✏️ ক্যাপশন সম্পাদনা করুন',
+        'save_exit_edit': '💾 সংরক্ষণ করুন ও প্রস্থান করুন',
+        'settings': '⚙️ সেটিংস',
+        'download_model': '📥 large-v1 মডেল ডাউনলোড করুন',
+        'login_google': '🔐 Google দিয়ে লগইন করুন (অনলাইন মোড)',
+        'import_media': '📁 ভিডিও/অডিও ফাইল ইম্পোর্ট করুন',
+        'browse_output': '📂 আউটপুট ফোল্ডার ব্রাউজ করুন',
+        'enhance_audio': '🎤 অডিও উন্নত করুন (শুধু কণ্ঠ)',
+        'play_pause': '▶️ চালান / ⏸️ বিরাম',
+        'playing': '⏸️ চলছে...',
+        'paused': '▶️ চালান / ⏸️ বিরাম',
+        'generate': '🚀 ক্যাপশন জেনারেট করুন',
+        'cancel': 'অপারেশন বাতিল করুন',
+        'force_cancel': '⚠️ জোর করে বাতিল (জরুরি)',
+        'reopen_notebook': '🔗 নোটবুক পুনরায় খুলুন',
+        'copy_url': '📋 URL কপি করুন',
+        'ai_caption_editor': 'AI-চালিত ক্যাপশন সম্পাদক',
+        'processing_mode': 'প্রক্রিয়াকরণ মোড:',
+        'language': 'ভাষা:',
+        'words_per_line': 'প্রতি লাইনে শব্দ:',
+        'output_format': 'আউটপুট ফরম্যাট:',
+        'output_folder': 'আউটপুট ফোল্ডার:',
+        'status': 'অবস্থা:',
+        'notebook_url': 'নোটবুক URL:',
+        'not_available': 'উপলব্ধ নয়',
+        'idle': 'নিষ্ক্রিয়',
+        'speed': 'গতি:',
+        'eta': 'অবশিষ্ট সময়:',
+        'downloading': 'ডাউনলোড হচ্ছে...',
+        'uploading': 'আপলোড হচ্ছে...',
+        'waiting': 'অপেক্ষা করছে...',
+        'normal_mode': '🖥️ সাধারণ (স্থানীয় Whisper)',
+        'online_mode': '☁️ অনলাইন (Colab + Drive)',
+        'english_transcribe': '🇺🇸 ইংরেজি (ট্রান্সক্রাইব)',
+        'bengali_transcribe': '🇧🇩 বাংলা (ট্রান্সক্রাইব)',
+        'settings_title': 'NotyCaption সেটিংস - সুরক্ষিত সংস্করণ',
+    },
+    
+    'ur': {
+        'window_title': 'NotyCaption Pro - NotY215 کا محفوظ AI کیپشن جنریٹر',
+        'ready': 'تیار',
+        'processing': 'پروسیسنگ جاری ہے...',
+        'canceled': 'منسوخ کر دیا گیا',
+        'completed': 'مکمل ہو گیا',
+        'failed': 'ناکام',
+        'edit_captions': '✏️ کیپشن میں ترمیم کریں',
+        'save_exit_edit': '💾 محفوظ کریں اور باہر جائیں',
+        'settings': '⚙️ ترتیبات',
+        'download_model': '📥 large-v1 ماڈل ڈاؤن لوڈ کریں',
+        'login_google': '🔐 Google سے لاگ ان کریں (آن لائن موڈ)',
+        'import_media': '📁 ویڈیو/آڈیو فائل درآمد کریں',
+        'browse_output': '📂 آؤٹ پٹ فولڈر براؤز کریں',
+        'enhance_audio': '🎤 آڈیو بہتر بنائیں (صرف آواز)',
+        'play_pause': '▶️ چلائیں / ⏸️ روکیں',
+        'playing': '⏸️ چل رہا ہے...',
+        'paused': '▶️ چلائیں / ⏸️ روکیں',
+        'generate': '🚀 کیپشن جنریٹ کریں',
+        'cancel': 'آپریشن منسوخ کریں',
+        'force_cancel': '⚠️ جبری منسوخی (ہنگامی)',
+        'reopen_notebook': '🔗 نوٹ بک دوبارہ کھولیں',
+        'copy_url': '📋 URL کاپی کریں',
+        'ai_caption_editor': 'AI سے چلنے والا کیپشن ایڈیٹر',
+        'processing_mode': 'پروسیسنگ موڈ:',
+        'language': 'زبان:',
+        'words_per_line': 'فی سطر الفاظ:',
+        'output_format': 'آؤٹ پٹ فارمیٹ:',
+        'output_folder': 'آؤٹ پٹ فولڈر:',
+        'status': 'حالت:',
+        'notebook_url': 'نوٹ بک URL:',
+        'not_available': 'دستیاب نہیں',
+        'idle': 'غیر فعال',
+        'speed': 'رفتار:',
+        'eta': 'متوقع وقت:',
+        'downloading': 'ڈاؤن لوڈ ہو رہا ہے...',
+        'uploading': 'اپ لوڈ ہو رہا ہے...',
+        'waiting': 'انتظار کر رہا ہے...',
+        'normal_mode': '🖥️ عام (مقامی Whisper)',
+        'online_mode': '☁️ آن لائن (Colab + Drive)',
+        'english_transcribe': '🇺🇸 انگریزی (ٹرانسکرائب)',
+        'urdu_transcribe': '🇵🇰 اردو (ٹرانسکرائب)',
+        'settings_title': 'NotyCaption ترتیبات - محفوظ ورژن',
+    },
+    
+    'ja': {
+        'window_title': 'NotyCaption Pro - NotY215による安全なAIキャプションジェネレーター',
+        'ready': '準備完了',
+        'processing': '処理中...',
+        'canceled': 'キャンセルされました',
+        'completed': '完了しました',
+        'failed': '失敗しました',
+        'edit_captions': '✏️ キャプションを編集',
+        'save_exit_edit': '💾 保存して終了',
+        'settings': '⚙️ 設定',
+        'download_model': '📥 large-v1モデルをダウンロード',
+        'login_google': '🔐 Googleでログイン（オンラインモード）',
+        'import_media': '📁 動画/音声ファイルをインポート',
+        'browse_output': '📂 出力フォルダを参照',
+        'enhance_audio': '🎤 音声を強化（ボーカルのみ）',
+        'play_pause': '▶️ 再生 / ⏸️ 一時停止',
+        'playing': '⏸️ 再生中...',
+        'paused': '▶️ 再生 / ⏸️ 一時停止',
+        'generate': '🚀 キャプションを生成',
+        'cancel': '操作をキャンセル',
+        'force_cancel': '⚠️ 強制キャンセル（緊急）',
+        'reopen_notebook': '🔗 ノートブックを再開',
+        'copy_url': '📋 URLをコピー',
+        'ai_caption_editor': 'AI搭載キャプションエディタ',
+        'processing_mode': '処理モード:',
+        'language': '言語:',
+        'words_per_line': '1行あたりの単語数:',
+        'output_format': '出力形式:',
+        'output_folder': '出力フォルダ:',
+        'status': 'ステータス:',
+        'notebook_url': 'ノートブックURL:',
+        'not_available': '利用できません',
+        'idle': 'アイドル',
+        'speed': '速度:',
+        'eta': '残り時間:',
+        'downloading': 'ダウンロード中...',
+        'uploading': 'アップロード中...',
+        'waiting': '待機中...',
+        'normal_mode': '🖥️ 通常（ローカルWhisper）',
+        'online_mode': '☁️ オンライン（Colab + Drive）',
+        'english_transcribe': '🇺🇸 英語（文字起こし）',
+        'japanese_translate': '🇯🇵 日本語 → 英語（翻訳）',
+        'japanese_transcribe': '🇯🇵 日本語（文字起こし）',
+        'settings_title': 'NotyCaption設定 - セキュアエディション',
+    }
+}
+
+# ========================================
+# HARDWARE DETECTION - IMPROVED VERSION
+# ========================================
+class HardwareDetector:
+    """Detect and report hardware capabilities with multiple fallback methods"""
+    
+    def __init__(self):
+        self.cuda_available = False
+        self.rocm_available = False
+        self.opencl_available = False
+        self.gpu_info = []
+        self.gpu_memory = []
+        self.cpu_info = ""
+        self.cpu_cores = 0
+        self.cpu_threads = 0
+        self.total_ram = 0
+        self.available_ram = 0
+        self.ram_usage = 0
+        self.disk_free = 0
+        self.disk_total = 0
+        self.tensorflow_gpu = False
+        self.pytorch_gpu = False
+        self.detect_hardware()
+        
+    def detect_hardware(self):
+        """Detect all hardware components with multiple fallback methods"""
+        self.detect_cpu()
+        self.detect_ram()
+        self.detect_disk()
+        self.detect_gpu_tensorflow()
+        self.detect_gpu_pytorch()
+        self.detect_gpu_gputil()
+        self.detect_gpu_nvidia_smi()
+        self.detect_gpu_wmi()
+        self.detect_opencl()
+        
+    def detect_cpu(self):
+        """Detect CPU information with multiple methods"""
+        try:
+            # Method 1: cpuinfo (most detailed)
+            import cpuinfo
+            cpu_info_dict = cpuinfo.get_cpu_info()
+            self.cpu_info = cpu_info_dict.get('brand_raw', 'Unknown CPU')
+            self.cpu_cores = cpu_info_dict.get('count', 0)
+            if 'hz_actual_friendly' in cpu_info_dict:
+                self.cpu_info += f" @ {cpu_info_dict['hz_actual_friendly']}"
+        except:
+            try:
+                # Method 2: platform module
+                import platform
+                self.cpu_info = platform.processor()
+                if not self.cpu_info or self.cpu_info == '':
+                    self.cpu_info = platform.machine()
+                
+                # Method 3: multiprocessing for core count
+                import multiprocessing
+                self.cpu_cores = multiprocessing.cpu_count()
+                self.cpu_threads = self.cpu_cores
+                
+                # Method 4: psutil for more details
+                try:
+                    import psutil
+                    cpu_freq = psutil.cpu_freq()
+                    if cpu_freq:
+                        self.cpu_info += f" @ {cpu_freq.current:.0f}MHz"
+                    self.cpu_cores = psutil.cpu_count(logical=False)
+                    self.cpu_threads = psutil.cpu_count(logical=True)
+                except:
+                    pass
+            except:
+                self.cpu_info = "Unknown CPU"
+                self.cpu_cores = 0
+                
+        logger.info(f"CPU detected: {self.cpu_info} ({self.cpu_cores} cores)")
+        
+    def detect_ram(self):
+        """Detect RAM information"""
+        try:
+            import psutil
+            mem = psutil.virtual_memory()
+            self.total_ram = mem.total / (1024**3)  # GB
+            self.available_ram = mem.available / (1024**3)
+            self.ram_usage = mem.percent
+        except:
+            try:
+                # Fallback method for RAM detection
+                import os
+                if os.name == 'nt':  # Windows
+                    import ctypes
+                    kernel32 = ctypes.windll.kernel32
+                    class MEMORYSTATUSEX(ctypes.Structure):
+                        _fields_ = [
+                            ("dwLength", ctypes.c_ulong),
+                            ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong),
+                            ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong),
+                            ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong),
+                            ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                        ]
+                    memoryStatus = MEMORYSTATUSEX()
+                    memoryStatus.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+                    if kernel32.GlobalMemoryStatusEx(ctypes.byref(memoryStatus)):
+                        self.total_ram = memoryStatus.ullTotalPhys / (1024**3)
+                        self.available_ram = memoryStatus.ullAvailPhys / (1024**3)
+                else:  # Linux/Mac
+                    with open('/proc/meminfo', 'r') as f:
+                        lines = f.readlines()
+                        for line in lines:
+                            if 'MemTotal' in line:
+                                self.total_ram = int(line.split()[1]) / (1024**2)  # Convert KB to GB
+                            if 'MemAvailable' in line:
+                                self.available_ram = int(line.split()[1]) / (1024**2)
+            except:
+                self.total_ram = 0
+                self.available_ram = 0
+                
+        logger.info(f"RAM detected: {self.total_ram:.1f}GB total, {self.available_ram:.1f}GB available")
+        
+    def detect_disk(self):
+        """Detect disk space"""
+        try:
+            import psutil
+            disk = psutil.disk_usage('/')
+            self.disk_total = disk.total / (1024**3)
+            self.disk_free = disk.free / (1024**3)
+        except:
+            try:
+                import shutil
+                total, used, free = shutil.disk_usage('/')
+                self.disk_total = total / (1024**3)
+                self.disk_free = free / (1024**3)
+            except:
+                self.disk_total = 0
+                self.disk_free = 0
+                
+    def detect_gpu_tensorflow(self):
+        """Detect GPU using TensorFlow"""
+        try:
+            import tensorflow as tf
+            gpus = tf.config.list_physical_devices('GPU')
+            if gpus:
+                self.tensorflow_gpu = True
+                self.cuda_available = True
+                for i, gpu in enumerate(gpus):
+                    try:
+                        # Try to get GPU details
+                        details = tf.config.experimental.get_device_details(gpu)
+                        if details:
+                            gpu_name = details.get('device_name', f'GPU {i}')
+                            compute_capability = details.get('compute_capability', '')
+                            if compute_capability:
+                                gpu_name += f" (CC {compute_capability})"
+                        else:
+                            gpu_name = str(gpu)
+                    except:
+                        gpu_name = str(gpu)
+                    
+                    # Get memory info if possible
+                    try:
+                        memory_info = tf.config.experimental.get_memory_info(f'GPU:{i}')
+                        if memory_info and 'current' in memory_info:
+                            memory_mb = memory_info['current'] / (1024**2)
+                            gpu_name += f" - {memory_mb:.0f}MB used"
+                    except:
+                        pass
+                        
+                    self.gpu_info.append(gpu_name)
+                    logger.info(f"TensorFlow GPU detected: {gpu_name}")
+        except:
+            self.tensorflow_gpu = False
+            
+    def detect_gpu_pytorch(self):
+        """Detect GPU using PyTorch"""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                self.pytorch_gpu = True
+                self.cuda_available = True
+                count = torch.cuda.device_count()
+                for i in range(count):
+                    try:
+                        gpu_name = torch.cuda.get_device_name(i)
+                        try:
+                            memory_allocated = torch.cuda.memory_allocated(i) / (1024**2)
+                            memory_reserved = torch.cuda.memory_reserved(i) / (1024**2)
+                            gpu_name += f" - {memory_allocated:.0f}MB/{memory_reserved:.0f}MB"
+                        except:
+                            pass
+                        if gpu_name not in self.gpu_info:
+                            self.gpu_info.append(gpu_name)
+                            logger.info(f"PyTorch GPU detected: {gpu_name}")
+                    except:
+                        pass
+        except:
+            self.pytorch_gpu = False
+            
+    def detect_gpu_gputil(self):
+        """Detect GPU using GPUtil (most detailed)"""
+        try:
+            import GPUtil
+            gpus = GPUtil.getGPUs()
+            if gpus:
+                self.cuda_available = True
+                for gpu in gpus:
+                    gpu_name = f"{gpu.name}"
+                    if hasattr(gpu, 'memoryTotal') and gpu.memoryTotal:
+                        gpu_name += f" - {gpu.memoryTotal:.0f}MB"
+                    if hasattr(gpu, 'temperature') and gpu.temperature:
+                        gpu_name += f" - {gpu.temperature:.0f}°C"
+                    if hasattr(gpu, 'load') and gpu.load:
+                        gpu_name += f" - Load: {gpu.load*100:.0f}%"
+                    
+                    # Store memory info separately
+                    if hasattr(gpu, 'memoryTotal'):
+                        self.gpu_memory.append({
+                            'name': gpu.name,
+                            'total': gpu.memoryTotal,
+                            'used': gpu.memoryUsed if hasattr(gpu, 'memoryUsed') else 0,
+                            'free': gpu.memoryFree if hasattr(gpu, 'memoryFree') else 0
+                        })
+                    
+                    if gpu_name not in self.gpu_info:
+                        self.gpu_info.append(gpu_name)
+                        logger.info(f"GPUtil GPU detected: {gpu_name}")
+        except:
+            pass
+            
+    def detect_gpu_nvidia_smi(self):
+        """Detect GPU using nvidia-smi command line"""
+        if self.gpu_info:  # Already have GPU info
+            return
+            
+        try:
+            import subprocess
+            import shutil
+            
+            # Check if nvidia-smi is available
+            nvidia_smi_path = shutil.which('nvidia-smi')
+            if nvidia_smi_path:
+                # Get GPU info
+                result = subprocess.run(
+                    [nvidia_smi_path, '--query-gpu=name,memory.total,memory.used,memory.free,temperature.gpu', '--format=csv,noheader'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout:
+                    lines = result.stdout.strip().split('\n')
+                    for line in lines:
+                        if line.strip():
+                            parts = [p.strip() for p in line.split(',')]
+                            if len(parts) >= 1:
+                                gpu_name = parts[0]
+                                if len(parts) >= 2:
+                                    gpu_name += f" - {parts[1]}"
+                                if len(parts) >= 5:
+                                    gpu_name += f" - {parts[4]}°C"
+                                self.gpu_info.append(gpu_name)
+                                self.cuda_available = True
+                                logger.info(f"nvidia-smi GPU detected: {gpu_name}")
+        except:
+            pass
+            
+    def detect_gpu_wmi(self):
+        """Detect GPU using WMI on Windows"""
+        if self.gpu_info or not sys.platform.startswith('win'):
+            return
+            
+        try:
+            import wmi
+            c = wmi.WMI()
+            for gpu in c.Win32_VideoController():
+                gpu_name = gpu.Name
+                if gpu.AdapterRAM:
+                    ram_gb = int(gpu.AdapterRAM) / (1024**3)
+                    gpu_name += f" - {ram_gb:.1f}GB"
+                self.gpu_info.append(gpu_name)
+                # Could be Intel, AMD, or NVIDIA
+                if 'nvidia' in gpu_name.lower() or 'amd' in gpu_name.lower():
+                    self.cuda_available = True
+                logger.info(f"WMI GPU detected: {gpu_name}")
+        except:
+            pass
+            
+    def detect_opencl(self):
+        """Detect OpenCL capability"""
+        try:
+            import pyopencl as cl
+            platforms = cl.get_platforms()
+            if platforms:
+                self.opencl_available = True
+                for platform in platforms:
+                    devices = platform.get_devices()
+                    for device in devices:
+                        if device.type == cl.device_type.GPU:
+                            gpu_name = f"OpenCL: {device.name}"
+                            if gpu_name not in self.gpu_info:
+                                self.gpu_info.append(gpu_name)
+                                logger.info(f"OpenCL GPU detected: {gpu_name}")
+        except:
+            self.opencl_available = False
+            
+    def get_acceleration_status(self):
+        """Get human-readable acceleration status with recommendations"""
+        if self.cuda_available:
+            return "gpu", f"✅ GPU Acceleration Available\n{chr(10).join(self.gpu_info)}"
+        elif self.rocm_available:
+            return "gpu", f"✅ ROCm Acceleration Available\n{chr(10).join(self.gpu_info)}"
+        elif self.opencl_available:
+            return "gpu", f"⚠️ OpenCL Available (Limited Acceleration)\n{chr(10).join(self.gpu_info)}"
+        else:
+            cpu_rec = self.get_cpu_recommendation()
+            return "cpu", f"⚠️ CPU Mode Only\nCPU: {self.cpu_info}\n{cpu_rec}"
+            
+    def get_cpu_recommendation(self):
+        """Get CPU-based recommendations"""
+        if self.cpu_cores >= 8:
+            return "✓ High-performance CPU detected - Good for processing"
+        elif self.cpu_cores >= 4:
+            return "✓ Medium-performance CPU - Will work but may be slower"
+        else:
+            return "! Low-performance CPU - Consider using online mode with GPU"
+            
+    def get_memory_status(self):
+        """Get memory status with warnings"""
+        status = f"RAM: {self.available_ram:.1f}GB / {self.total_ram:.1f}GB ({self.ram_usage:.0f}% used)"
+        if self.available_ram < 2:
+            status += "\n⚠️ Low memory! Close other applications"
+        elif self.available_ram < 4:
+            status += "\n⚠️ Limited memory available"
+        return status
+        
+    def get_disk_status(self):
+        """Get disk status"""
+        return f"Disk: {self.disk_free:.1f}GB free / {self.disk_total:.1f}GB total"
+        
+    def get_detailed_info(self):
+        """Get detailed hardware info for display"""
+        info = []
+        info.append("=" * 50)
+        info.append("HARDWARE DETECTION REPORT")
+        info.append("=" * 50)
+        
+        # CPU Info
+        info.append(f"\n📌 CPU:")
+        info.append(f"   Model: {self.cpu_info}")
+        info.append(f"   Cores: {self.cpu_cores} physical, {self.cpu_threads} logical")
+        
+        # RAM Info
+        info.append(f"\n📌 Memory:")
+        info.append(f"   Total: {self.total_ram:.1f} GB")
+        info.append(f"   Available: {self.available_ram:.1f} GB")
+        info.append(f"   Usage: {self.ram_usage:.0f}%")
+        
+        # Disk Info
+        info.append(f"\n📌 Storage:")
+        info.append(self.get_disk_status())
+        
+        # GPU Info
+        info.append(f"\n📌 Graphics:")
+        if self.gpu_info:
+            for i, gpu in enumerate(self.gpu_info, 1):
+                info.append(f"   GPU {i}: {gpu}")
+                
+            # Memory details if available
+            if self.gpu_memory:
+                for mem in self.gpu_memory:
+                    info.append(f"   VRAM: {mem['used']:.0f}MB / {mem['total']:.0f}MB used")
+        else:
+            info.append("   No GPU detected")
+            
+        # Acceleration Capabilities
+        info.append(f"\n📌 Acceleration:")
+        info.append(f"   CUDA: {'✅ Available' if self.cuda_available else '❌ Not Available'}")
+        info.append(f"   ROCm: {'✅ Available' if self.rocm_available else '❌ Not Available'}")
+        info.append(f"   OpenCL: {'✅ Available' if self.opencl_available else '❌ Not Available'}")
+        info.append(f"   TensorFlow GPU: {'✅ Yes' if self.tensorflow_gpu else '❌ No'}")
+        info.append(f"   PyTorch GPU: {'✅ Yes' if self.pytorch_gpu else '❌ No'}")
+        
+        # Recommendations
+        info.append(f"\n📌 Recommendations:")
+        accel_type, accel_msg = self.get_acceleration_status()
+        info.append(f"   {accel_msg}")
+        
+        info.append("=" * 50)
+        return info
+        
+    def get_performance_estimate(self):
+        """Get estimated performance for different tasks"""
+        if self.cuda_available:
+            return {
+                'transcription': 'Very Fast (GPU accelerated)',
+                'enhancement': 'Fast',
+                'model_download': 'Limited by internet speed'
+            }
+        elif self.cpu_cores >= 8:
+            return {
+                'transcription': 'Fast (Multi-core CPU)',
+                'enhancement': 'Moderate',
+                'model_download': 'Limited by internet speed'
+            }
+        elif self.cpu_cores >= 4:
+            return {
+                'transcription': 'Moderate',
+                'enhancement': 'Slow',
+                'model_download': 'Limited by internet speed'
+            }
+        else:
+            return {
+                'transcription': 'Slow - Use online mode',
+                'enhancement': 'Very Slow - Use online mode',
+                'model_download': 'Limited by internet speed'
+            }
+
+# Initialize global hardware detector (after logger is defined)
+try:
+    hardware_detector = HardwareDetector()
+    logger.info("Hardware detector initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize hardware detector: {e}")
+    # Create a minimal fallback
+    class MinimalHardwareDetector:
+        def get_acceleration_status(self): return "cpu", "⚠️ Hardware detection failed"
+        def get_memory_status(self): return "Memory: Unknown"
+        def get_detailed_info(self): return ["Hardware detection failed"]
+        def get_performance_estimate(self): return {}
+    hardware_detector = MinimalHardwareDetector()
 
 # ========================================
 # CONFIGURATION
@@ -123,10 +1169,49 @@ def setup_logging():
     logger.info(f"PyInstaller frozen: {getattr(sys, 'frozen', False)}")
     logger.info(f"Executable path: {sys.executable if getattr(sys, 'frozen', False) else 'dev mode'}")
     logger.info(f"Client mode: {'EXE (encrypted)' if os.path.exists(CLIENT_ENCRYPTED) else 'Dev (plain)'}")
-    logger.info(f"CUDA available: {tf.test.is_built_with_cuda()} (Auto-fallback to CPU if no GPU)")
+    
+    # Hardware detection (now using the global hardware_detector)
+    try:
+        accel_type, accel_info = hardware_detector.get_acceleration_status()
+        logger.info(f"Hardware acceleration: {accel_type}")
+        logger.info(f"Hardware info: {accel_info}")
+        logger.info(f"Memory: {hardware_detector.get_memory_status()}")
+    except:
+        logger.info("Hardware detection not available")
+    
     return logger
 
 logger = setup_logging()
+
+# ========================================
+# TRANSLATION HELPER
+# ========================================
+class Translator:
+    """Handle UI translations"""
+    
+    def __init__(self, language='en'):
+        self.language = language
+        self.translations = TRANSLATIONS.get(language, TRANSLATIONS['en'])
+        
+    def tr(self, key):
+        """Translate a key"""
+        return self.translations.get(key, TRANSLATIONS['en'].get(key, key))
+        
+    def set_language(self, language):
+        """Change language"""
+        self.language = language
+        self.translations = TRANSLATIONS.get(language, TRANSLATIONS['en'])
+        
+    def get_available_languages(self):
+        """Get list of available languages"""
+        return list(TRANSLATIONS.keys())
+
+# Global translator instance
+_translator = Translator()
+
+def tr(key):
+    """Global translate function"""
+    return _translator.tr(key)
 
 # ========================================
 # RESOURCE PATH HELPER
@@ -300,18 +1385,19 @@ def load_settings():
         "models_dir": APP_DATA_DIR,
         "last_mode": "normal",
         "auto_enhance": False,
-        "default_lang": "🇺🇸 English (Transcribe)",
+        "default_lang": tr('english_transcribe'),
         "force_cancel_timeout": 30,
         "max_retry_attempts": 5,
         "confirm_cancel": True,
         "minimize_to_tray": False,
         "show_tooltips": True,
         "words_per_line": 5,
-        "output_format": "📄 .SRT (Standard)",
+        "output_format": tr('srt_format'),
         "last_input_file": "",
         "last_output_folder": "",
         "window_geometry": None,
-        "window_state": None
+        "window_state": None,
+        "language": "en"
     }
     
     if not os.path.exists(SETTINGS_FILE):
@@ -404,6 +1490,77 @@ class SingleInstance:
                 logger.warning(f"Socket close failed: {close_err}")
 
 # ========================================
+# WHISPER TRANSCRIPTION WITH PROGRESS
+# ========================================
+class ProgressWhisper:
+    """Wrapper for Whisper that provides real progress updates"""
+    
+    def __init__(self, progress_callback=None):
+        self.progress_callback = progress_callback
+        self._canceled = False
+        self._lock = threading.Lock()
+        
+    def cancel(self):
+        with self._lock:
+            self._canceled = True
+            
+    def is_canceled(self):
+        with self._lock:
+            return self._canceled
+            
+    def transcribe_with_progress(self, model, audio_path, **kwargs):
+        """Transcribe with progress updates"""
+        import tqdm
+        import whisper
+        import numpy as np
+        
+        # Load audio and compute Mel spectrogram
+        audio = whisper.load_audio(audio_path)
+        audio_length = len(audio) / whisper.audio.SAMPLE_RATE
+        
+        # Get model dimensions
+        mel = whisper.log_mel_spectrogram(audio).to(model.device)
+        content_frames = mel.shape[-1]
+        
+        # Detect language if not specified
+        if kwargs.get('language') is None:
+            segment, _ = model.detect_language(mel[:1])
+            kwargs['language'] = segment[0][0]
+            if self.progress_callback:
+                self.progress_callback(5, f"Detected language: {kwargs['language']}")
+                
+        # Prepare for decoding
+        options = whisper.DecodingOptions(
+            task=kwargs.get('task', 'transcribe'),
+            language=kwargs.get('language'),
+            without_timestamps=False,
+            fp16=model.device == 'cuda'
+        )
+        
+        # Run transcription with word timestamps
+        result = whisper.transcribe(
+            model,
+            audio,
+            task=kwargs.get('task', 'transcribe'),
+            language=kwargs.get('language'),
+            word_timestamps=kwargs.get('word_timestamps', True),
+            verbose=False
+        )
+        
+        # Calculate progress based on segments
+        total_segments = len(result['segments'])
+        for i, segment in enumerate(result['segments']):
+            if self.is_canceled():
+                raise Exception("Transcription canceled by user")
+                
+            if self.progress_callback:
+                # Progress from 20% to 80% during segment processing
+                progress = 20 + int((i / total_segments) * 60)
+                self.progress_callback(progress, f"Processing segment {i+1}/{total_segments}")
+                
+        return result
+
+# ========================================
 # SETTINGS DIALOG
 # ========================================
 class SettingsDialog(QDialog):
@@ -411,9 +1568,10 @@ class SettingsDialog(QDialog):
 
     def __init__(self, current_settings, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("NotyCaption Settings - Secure Edition")
-        self.setFixedSize(620, 720)
+        self.setWindowTitle(tr('settings_title'))
+        self.setFixedSize(700, 800)
         self.current_settings = current_settings
+        self.parent_window = parent
         lay = QVBoxLayout()
         self.setLayout(lay)
 
@@ -426,11 +1584,11 @@ class SettingsDialog(QDialog):
         general_layout = QVBoxLayout()
         general_tab.setLayout(general_layout)
 
-        th_gb = QGroupBox("Visual Theme")
+        th_gb = QGroupBox(tr('visual_theme'))
         th_lay = QVBoxLayout()
-        self.rb_win = QRadioButton("System Default (Windows)")
-        self.rb_light = QRadioButton("Light Mode")
-        self.rb_dark = QRadioButton("Dark Mode (Modern)")
+        self.rb_win = QRadioButton(tr('system_default'))
+        self.rb_light = QRadioButton(tr('light_mode'))
+        self.rb_dark = QRadioButton(tr('dark_mode'))
         th_lay.addWidget(self.rb_win)
         th_lay.addWidget(self.rb_light)
         th_lay.addWidget(self.rb_dark)
@@ -443,38 +1601,40 @@ class SettingsDialog(QDialog):
         th_gb.setLayout(th_lay)
         general_layout.addWidget(th_gb)
 
-        sc_gb = QGroupBox("UI Scaling")
+        sc_gb = QGroupBox(tr('ui_scaling'))
         sc_lay = QHBoxLayout()
         self.scale_combo = QComboBox()
         self.scale_combo.addItems(["75%", "87%", "100%", "125%", "150%", "175%", "200%"])
         self.scale_combo.setCurrentText(current_settings.get("ui_scale", "100%"))
-        sc_lay.addWidget(QLabel("Scale Factor: "))
+        sc_lay.addWidget(QLabel(tr('scale_factor')))
         sc_lay.addWidget(self.scale_combo)
         sc_lay.addStretch()
         sc_gb.setLayout(sc_lay)
         general_layout.addWidget(sc_gb)
+        
+        general_layout.addStretch()
 
         # ===== Paths Tab =====
         paths_tab = QWidget()
         paths_layout = QVBoxLayout()
         paths_tab.setLayout(paths_layout)
 
-        tmp_gb = QGroupBox("Temporary Files Directory")
+        tmp_gb = QGroupBox(tr('temp_dir'))
         tmp_lay = QHBoxLayout()
         self.tmp_edit = QLineEdit(current_settings.get("temp_dir", tempfile.gettempdir()))
-        self.tmp_edit.setPlaceholderText("Default: System Temp")
-        tmp_btn = QPushButton("Browse Folder")
+        self.tmp_edit.setPlaceholderText(tr('temp_dir_placeholder'))
+        tmp_btn = QPushButton(tr('browse_folder'))
         tmp_btn.clicked.connect(self.browse_temp)
         tmp_lay.addWidget(self.tmp_edit)
         tmp_lay.addWidget(tmp_btn)
         tmp_gb.setLayout(tmp_lay)
         paths_layout.addWidget(tmp_gb)
 
-        mod_gb = QGroupBox("Whisper Models Directory")
+        mod_gb = QGroupBox(tr('models_dir'))
         mod_lay = QHBoxLayout()
         self.mod_edit = QLineEdit(current_settings.get("models_dir", APP_DATA_DIR))
-        self.mod_edit.setPlaceholderText(f"Default: {APP_DATA_DIR}")
-        mod_btn = QPushButton("Browse Folder")
+        self.mod_edit.setPlaceholderText(tr('models_dir_placeholder'))
+        mod_btn = QPushButton(tr('browse_folder'))
         mod_btn.clicked.connect(self.browse_models)
         mod_lay.addWidget(self.mod_edit)
         mod_lay.addWidget(mod_btn)
@@ -488,64 +1648,141 @@ class SettingsDialog(QDialog):
         features_layout = QVBoxLayout()
         features_tab.setLayout(features_layout)
 
-        auto_gb = QGroupBox("Auto Features")
+        auto_gb = QGroupBox(tr('auto_features'))
         auto_lay = QVBoxLayout()
-        self.cb_auto_enhance = QRadioButton("Auto-Enhance Audio (Vocals Only)")
+        self.cb_auto_enhance = QRadioButton(tr('auto_enhance'))
         self.cb_auto_enhance.setChecked(current_settings.get("auto_enhance", False))
-        self.cb_default_lang = QComboBox()
-        self.cb_default_lang.addItems(["🇺🇸 English (Transcribe)", "🇯🇵 Japanese → English (Translate)"])
-        self.cb_default_lang.setCurrentText(current_settings.get("default_lang", "🇺🇸 English (Transcribe)"))
         auto_lay.addWidget(self.cb_auto_enhance)
-        auto_lay.addWidget(QLabel("Default Language:"))
-        auto_lay.addWidget(self.cb_default_lang)
         auto_gb.setLayout(auto_lay)
         features_layout.addWidget(auto_gb)
 
-        wpl_gb = QGroupBox("Default Words per Line")
+        wpl_gb = QGroupBox(tr('default_wpl'))
         wpl_lay = QHBoxLayout()
         self.wpl_spin = QSpinBox()
         self.wpl_spin.setRange(1, 20)
         self.wpl_spin.setValue(current_settings.get("words_per_line", 5))
-        wpl_lay.addWidget(QLabel("Words: "))
+        wpl_lay.addWidget(QLabel(tr('words')))
         wpl_lay.addWidget(self.wpl_spin)
         wpl_lay.addStretch()
         wpl_gb.setLayout(wpl_lay)
         features_layout.addWidget(wpl_gb)
 
-        fmt_gb = QGroupBox("Default Output Format")
+        fmt_gb = QGroupBox(tr('default_format'))
         fmt_lay = QHBoxLayout()
         self.fmt_combo = QComboBox()
-        self.fmt_combo.addItems(["📄 .SRT (Standard)", "🎨 .ASS (Advanced)"])
-        self.fmt_combo.setCurrentText(current_settings.get("output_format", "📄 .SRT (Standard)"))
-        fmt_lay.addWidget(QLabel("Format: "))
+        self.fmt_combo.addItems([tr('srt_format'), tr('ass_format')])
+        self.fmt_combo.setCurrentText(current_settings.get("output_format", tr('srt_format')))
+        fmt_lay.addWidget(QLabel(tr('format')))
         fmt_lay.addWidget(self.fmt_combo)
         fmt_lay.addStretch()
         fmt_gb.setLayout(fmt_lay)
         features_layout.addWidget(fmt_gb)
+        
+        features_layout.addStretch()
+
+        # ===== Language Tab =====
+        language_tab = QWidget()
+        language_layout = QVBoxLayout()
+        language_tab.setLayout(language_layout)
+        
+        lang_gb = QGroupBox(tr('ui_language'))
+        lang_lay = QVBoxLayout()
+        
+        self.lang_combo = QComboBox()
+        languages = [
+            ('en', 'English'),
+            ('zh', '中文'),
+            ('fr', 'Français'),
+            ('de', 'Deutsch'),
+            ('hi', 'हिन्दी'),
+            ('bn', 'বাংলা'),
+            ('ur', 'اردو'),
+            ('ja', '日本語')
+        ]
+        for code, name in languages:
+            self.lang_combo.addItem(f"{name}", code)
+        
+        # Set current language
+        current_lang = current_settings.get("language", "en")
+        index = self.lang_combo.findData(current_lang)
+        if index >= 0:
+            self.lang_combo.setCurrentIndex(index)
+            
+        lang_lay.addWidget(QLabel(tr('ui_language')))
+        lang_lay.addWidget(self.lang_combo)
+        lang_lay.addStretch()
+        
+        lang_gb.setLayout(lang_lay)
+        language_layout.addWidget(lang_gb)
+        
+        # Default transcription language
+        default_lang_gb = QGroupBox(tr('default_language'))
+        default_lang_lay = QVBoxLayout()
+        
+        self.default_lang_combo = QComboBox()
+        default_languages = [
+            tr('english_transcribe'), tr('japanese_translate'), tr('chinese_transcribe'),
+            tr('french_transcribe'), tr('german_transcribe'), tr('spanish_transcribe'),
+            tr('russian_transcribe'), tr('arabic_transcribe'), tr('hindi_transcribe'),
+            tr('bengali_transcribe'), tr('urdu_transcribe'), tr('portuguese_transcribe'),
+            tr('italian_transcribe'), tr('dutch_transcribe'), tr('polish_transcribe'),
+            tr('turkish_transcribe'), tr('vietnamese_transcribe'), tr('thai_transcribe'),
+            tr('korean_transcribe')
+        ]
+        self.default_lang_combo.addItems(default_languages)
+        self.default_lang_combo.setCurrentText(current_settings.get("default_lang", tr('english_transcribe')))
+        
+        default_lang_lay.addWidget(self.default_lang_combo)
+        default_lang_gb.setLayout(default_lang_lay)
+        language_layout.addWidget(default_lang_gb)
+        
+        language_layout.addStretch()
 
         # ===== Advanced Tab =====
         advanced_tab = QWidget()
         advanced_layout = QVBoxLayout()
         advanced_tab.setLayout(advanced_layout)
 
-        cancel_gb = QGroupBox("Cancel Options")
+        # Hardware info section
+        hw_gb = QGroupBox(tr('hardware_acceleration'))
+        hw_lay = QVBoxLayout()
+        
+        accel_type, accel_info = hardware_detector.get_acceleration_status()
+        if accel_type == 'gpu':
+            hw_lay.addWidget(QLabel(f"✅ {tr('using_gpu')}"))
+            hw_lay.addWidget(QLabel(f"   {accel_info}"))
+        else:
+            hw_lay.addWidget(QLabel(f"⚠️ {tr('using_cpu')}"))
+            hw_lay.addWidget(QLabel(f"   {accel_info}"))
+            
+        hw_lay.addWidget(QLabel(hardware_detector.get_memory_status()))
+        
+        # Detailed info button
+        hw_details_btn = QPushButton("Show Detailed Hardware Info")
+        hw_details_btn.clicked.connect(self.show_hardware_details)
+        hw_lay.addWidget(hw_details_btn)
+        
+        hw_gb.setLayout(hw_lay)
+        advanced_layout.addWidget(hw_gb)
+
+        cancel_gb = QGroupBox(tr('cancel_options'))
         cancel_lay = QVBoxLayout()
-        self.cb_confirm_cancel = QRadioButton("Ask for confirmation before canceling")
+        self.cb_confirm_cancel = QRadioButton(tr('confirm_cancel'))
         self.cb_confirm_cancel.setChecked(current_settings.get("confirm_cancel", True))
         cancel_lay.addWidget(self.cb_confirm_cancel)
         
         timeout_lay = QHBoxLayout()
-        timeout_lay.addWidget(QLabel("Show force cancel after:"))
+        timeout_lay.addWidget(QLabel(tr('force_cancel_timeout')))
         self.force_timeout_spin = QSpinBox()
         self.force_timeout_spin.setRange(10, 120)
-        self.force_timeout_spin.setSuffix(" seconds")
+        self.force_timeout_spin.setSuffix(tr('seconds'))
         self.force_timeout_spin.setValue(current_settings.get("force_cancel_timeout", 30))
         timeout_lay.addWidget(self.force_timeout_spin)
         timeout_lay.addStretch()
         cancel_lay.addLayout(timeout_lay)
         
         retry_lay = QHBoxLayout()
-        retry_lay.addWidget(QLabel("Max retry attempts:"))
+        retry_lay.addWidget(QLabel(tr('max_retry')))
         self.retry_spin = QSpinBox()
         self.retry_spin.setRange(1, 20)
         self.retry_spin.setValue(current_settings.get("max_retry_attempts", 5))
@@ -556,13 +1793,13 @@ class SettingsDialog(QDialog):
         cancel_gb.setLayout(cancel_lay)
         advanced_layout.addWidget(cancel_gb)
 
-        ui_gb = QGroupBox("UI Options")
+        ui_gb = QGroupBox(tr('ui_options'))
         ui_lay = QVBoxLayout()
-        self.cb_minimize_tray = QRadioButton("Minimize to system tray")
+        self.cb_minimize_tray = QRadioButton(tr('minimize_tray'))
         self.cb_minimize_tray.setChecked(current_settings.get("minimize_to_tray", False))
         ui_lay.addWidget(self.cb_minimize_tray)
         
-        self.cb_show_tooltips = QRadioButton("Show tooltips")
+        self.cb_show_tooltips = QRadioButton(tr('show_tooltips'))
         self.cb_show_tooltips.setChecked(current_settings.get("show_tooltips", True))
         ui_lay.addWidget(self.cb_show_tooltips)
         
@@ -572,17 +1809,18 @@ class SettingsDialog(QDialog):
         advanced_layout.addStretch()
 
         # Add tabs
-        tabs.addTab(general_tab, "General")
-        tabs.addTab(paths_tab, "Paths")
-        tabs.addTab(features_tab, "Features")
-        tabs.addTab(advanced_tab, "Advanced")
+        tabs.addTab(general_tab, tr('general_tab'))
+        tabs.addTab(paths_tab, tr('paths_tab'))
+        tabs.addTab(features_tab, tr('features_tab'))
+        tabs.addTab(language_tab, tr('language_tab'))
+        tabs.addTab(advanced_tab, tr('advanced_tab'))
 
         # Buttons
         btn_lay = QHBoxLayout()
-        apply_btn = QPushButton("Apply & Restart UI")
+        apply_btn = QPushButton(tr('apply_restart'))
         apply_btn.setStyleSheet("background:#007aff; color:white; padding:12px; border-radius:8px; font-weight:bold;")
         apply_btn.clicked.connect(self.apply_close)
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton(tr('cancel'))
         cancel_btn.setStyleSheet("background:#8e8e93; color:white; padding:12px; border-radius:8px;")
         cancel_btn.clicked.connect(self.reject)
         btn_lay.addStretch()
@@ -592,19 +1830,28 @@ class SettingsDialog(QDialog):
 
         logger.info("Settings dialog initialized with current settings")
 
+    def show_hardware_details(self):
+        """Show detailed hardware information"""
+        details = hardware_detector.get_detailed_info()
+        msg = "\n".join(details)
+        QMessageBox.information(self, tr('hardware_acceleration'), msg)
+
     def browse_temp(self):
-        d = QFileDialog.getExistingDirectory(self, "Select Temporary Files Folder")
+        d = QFileDialog.getExistingDirectory(self, tr('temp_dir'))
         if d:
             self.tmp_edit.setText(d)
             logger.info(f"Temp dir changed to: {d}")
 
     def browse_models(self):
-        d = QFileDialog.getExistingDirectory(self, "Select Whisper Models Folder")
+        d = QFileDialog.getExistingDirectory(self, tr('models_dir'))
         if d:
             self.mod_edit.setText(d)
             logger.info(f"Models dir changed to: {d}")
 
     def apply_close(self):
+        # Get selected language
+        lang_code = self.lang_combo.currentData()
+        
         new_settings = {
             "ui_scale": self.scale_combo.currentText(),
             "theme": "Windows Default" if self.rb_win.isChecked() else
@@ -612,7 +1859,7 @@ class SettingsDialog(QDialog):
             "temp_dir": self.tmp_edit.text(),
             "models_dir": self.mod_edit.text(),
             "auto_enhance": self.cb_auto_enhance.isChecked(),
-            "default_lang": self.cb_default_lang.currentText(),
+            "default_lang": self.default_lang_combo.currentText(),
             "last_mode": self.current_settings.get("last_mode", "normal"),
             "force_cancel_timeout": self.force_timeout_spin.value(),
             "max_retry_attempts": self.retry_spin.value(),
@@ -624,9 +1871,14 @@ class SettingsDialog(QDialog):
             "last_input_file": self.current_settings.get("last_input_file", ""),
             "last_output_folder": self.current_settings.get("last_output_folder", ""),
             "window_geometry": self.current_settings.get("window_geometry"),
-            "window_state": self.current_settings.get("window_state")
+            "window_state": self.current_settings.get("window_state"),
+            "language": lang_code
         }
         save_settings(new_settings)
+        
+        # Update global translator
+        _translator.set_language(lang_code)
+        
         self.settingsChanged.emit(new_settings)
         self.accept()
         logger.info("Settings applied and dialog closed")
@@ -699,7 +1951,7 @@ class OnlineHandler:
         # Clean up Drive files
         self.cleanup_current_operation()
             
-        self.parent.statusBar().showMessage("Online operation canceled", 5000)
+        self.parent.statusBar().showMessage(tr('canceled'), 5000)
 
     def force_cancel_operation(self):
         """Force cancel operation without waiting for graceful shutdown"""
@@ -731,7 +1983,7 @@ class OnlineHandler:
         # Clear notebook URL
         self.parent.update_notebook_url_display(None)
             
-        self.parent.statusBar().showMessage("Online operation force canceled", 5000)
+        self.parent.statusBar().showMessage(tr('force_canceled'), 5000)
 
     def update_status(self, status):
         """Update online mode status"""
@@ -802,7 +2054,7 @@ class OnlineHandler:
         else:
             logger.warning("Max retry attempts reached")
             self.update_status("failed")
-            self.parent.statusBar().showMessage("Network failed - check connection", 5000)
+            self.parent.statusBar().showMessage(tr('failed'), 5000)
             self.parent.show_force_cancel_option(True)
 
     def handle_online(self, audio_to_use, lang_code, task, wpl, fmt, base, out_path):
@@ -814,7 +2066,7 @@ class OnlineHandler:
             self.max_retry_attempts = self.parent.settings.get("max_retry_attempts", 5)
             
         if not self.service:
-            QMessageBox.warning(self.parent, "Error", "Please login with Google first.")
+            QMessageBox.warning(self.parent, tr('error'), tr('login_required'))
             logger.warning("Online mode attempted without service")
             return False
 
@@ -832,7 +2084,7 @@ class OnlineHandler:
             results = self.service.files().list(q=query, fields="files(id,name)").execute()
             files = results.get("files", [])
             if files:
-                reply = QMessageBox.question(self.parent, "File Exists", f"{self.poll_output_name} already exists in Drive.\nOverwrite?", QMessageBox.Yes | QMessageBox.No)
+                reply = QMessageBox.question(self.parent, tr('overwrite'), tr('overwrite_msg').format(self.poll_output_name), QMessageBox.Yes | QMessageBox.No)
                 if reply == QMessageBox.No:
                     logger.info("User chose not to overwrite existing file")
                     return False
@@ -907,24 +2159,24 @@ class OnlineHandler:
             self.update_status("waiting")
             
             # Create clickable link message
-            link_message = (f"<b>Notebook opened in browser</b><br><br>"
-                           f"If you closed the tab, click below to reopen:<br>"
+            link_message = (f"<b>{tr('colab_launched')}</b><br><br>"
+                           f"{tr('reopen_notebook_msg')}<br>"
                            f"<a href='{colab_url}' style='color: #00c853;'>{colab_url}</a><br><br>"
-                           f"<b>Instructions:</b><br>"
-                           f"1. In Colab → Runtime → Change runtime type → Hardware accelerator → GPU<br>"
-                           f"2. Wait 60 seconds → then Runtime → Run All<br>"
-                           f"3. App will auto-download subtitles when finished")
+                           f"<b>{tr('instructions')}:</b><br>"
+                           f"1. {tr('colab_step1')}<br>"
+                           f"2. {tr('colab_step2')}<br>"
+                           f"3. {tr('colab_step3')}")
             
             # Show message with clickable link
             msg_box = QMessageBox(self.parent)
-            msg_box.setWindowTitle("Colab Launched (GPU Runtime Recommended)")
+            msg_box.setWindowTitle(tr('colab_launched'))
             msg_box.setTextFormat(Qt.RichText)
             msg_box.setText(link_message)
             msg_box.setStandardButtons(QMessageBox.Ok)
             msg_box.exec_()
 
             self.poll_local_out = out_path
-            self.parent.statusBar().showMessage("Online mode active – waiting for Colab (GPU) to finish...", 12000)
+            self.parent.statusBar().showMessage(tr('online_waiting'), 12000)
 
             # Start polling
             self.poll_timer.stop()
@@ -943,7 +2195,7 @@ class OnlineHandler:
             logger.error(f"Online mode failed: {traceback.format_exc()}")
             self.update_status("failed")
             self.cleanup_current_operation()
-            QMessageBox.critical(self.parent, "Online Mode Failed", str(online_err))
+            QMessageBox.critical(self.parent, tr('failed'), str(online_err))
             return False
 
     def get_or_create_folder(self, service, name):
@@ -1132,17 +2384,17 @@ class OnlineHandler:
             self.update_status("timeout")
             
             # Show timeout message with reopen link
-            link_message = (f"<b>Colab Timeout / Crash Detected</b><br><br>"
-                           f"No result file appeared in Google Drive after long wait.<br><br>"
-                           f"If you closed the tab, you can reopen it here:<br>"
+            link_message = (f"<b>{tr('colab_timeout')}</b><br><br>"
+                           f"{tr('colab_timeout_msg')}<br><br>"
+                           f"{tr('reopen_notebook_msg')}<br>"
                            f"<a href='{self._current_colab_url}' style='color: #00c853;'>{self._current_colab_url}</a><br><br>"
-                           f"<b>Next steps:</b><br>"
-                           f"1. Check if the notebook finished or errored<br>"
-                           f"2. If subtitles appeared in Drive → download manually<br>"
-                           f"3. Try again with shorter clip or 'tiny'/'base' model")
+                           f"<b>{tr('next_steps')}:</b><br>"
+                           f"1. {tr('check_notebook')}<br>"
+                           f"2. {tr('download_manually')}<br>"
+                           f"3. {tr('try_shorter')}")
             
             msg_box = QMessageBox(self.parent)
-            msg_box.setWindowTitle("Colab Timeout")
+            msg_box.setWindowTitle(tr('colab_timeout'))
             msg_box.setTextFormat(Qt.RichText)
             msg_box.setText(link_message)
             msg_box.setStandardButtons(QMessageBox.Ok)
@@ -1187,11 +2439,11 @@ class OnlineHandler:
                                             eta_seconds = remaining_bytes / speed
                                             eta_str = str(timedelta(seconds=int(eta_seconds)))
                                         else:
-                                            eta_str = "calculating..."
+                                            eta_str = tr('calculating')
                                     else:
-                                        eta_str = "calculating..."
+                                        eta_str = tr('calculating')
                                 else:
-                                    eta_str = "calculating..."
+                                    eta_str = tr('calculating')
                                 
                                 logger.info(f"Download progress: {progress_pct}%")
                                 self.parent.progress_update(progress_pct, eta_str, speed if 'speed' in locals() else 0)
@@ -1212,27 +2464,27 @@ class OnlineHandler:
                         
                     QMessageBox.information(
                         self.parent,
-                        "Success - Subtitles Ready",
-                        f"Downloaded and loaded:\n{self.poll_local_out}\n\nAll temporary files have been cleaned up from Google Drive."
+                        tr('completed'),
+                        f"{tr('generation_success')}\n{self.poll_local_out}\n\n{tr('cleanup_complete')}"
                     )
                     self.poll_attempts = 0
                     logger.info("Online polling complete - success")
                 except Exception as dl_err:
                     logger.error(f"Download failed: {dl_err}")
                     self.update_status("failed")
-                    QMessageBox.critical(self.parent, "Download Error", str(dl_err))
+                    QMessageBox.critical(self.parent, tr('failed'), str(dl_err))
             else:
                 logger.debug(f"Poll attempt {self.poll_attempts}/{self.max_poll_attempts} — waiting...")
                 self.update_status("waiting")
                 if self.poll_attempts % 15 == 0:
                     mins = (self.poll_attempts * 8) // 60
                     self.parent.statusBar().showMessage(
-                        f"Waiting for Colab (GPU) result... ({mins} min elapsed)", 10000
+                        f"{tr('waiting')}... ({mins} {tr('min_elapsed')})", 10000
                     )
         except Exception as poll_err:
             logger.warning(f"Poll network/drive error: {poll_err}")
             self.update_status("network_error")
-            self.parent.show_error_details("Network Error", str(poll_err), "This may be a temporary network issue. The app will retry automatically.")
+            self.parent.show_error_details(tr('network_error'), str(poll_err), tr('retry_auto'))
             # Schedule retry
             if not self.retry_timer.isActive() and not self._stop_event.is_set():
                 self.retry_timer.start(5000)  # Retry after 5 seconds
@@ -1348,7 +2600,7 @@ class AudioEnhancerThread(QThread):
                 elapsed = time.time() - self._start_time
                 if elapsed > 0:
                     speed = 1.0 / elapsed  # Simplified speed metric
-                    eta_str = "completed"
+                    eta_str = tr('completed')
                     self.speed_update.emit(speed, eta_str)
             
             if self.is_canceled():
@@ -1477,11 +2729,11 @@ class CancellableWhisperDownloader:
     def calculate_speed_and_eta(self):
         """Calculate download speed and ETA"""
         if not self._start_time or self._downloaded == 0:
-            return 0, "calculating..."
+            return 0, tr('calculating')
             
         elapsed = time.time() - self._start_time
         if elapsed <= 0:
-            return 0, "calculating..."
+            return 0, tr('calculating')
             
         # Calculate current speed (smoothed average)
         current_speed = self._downloaded / elapsed
@@ -1497,7 +2749,7 @@ class CancellableWhisperDownloader:
             eta_seconds = remaining_bytes / avg_speed
             eta_str = str(timedelta(seconds=int(eta_seconds)))
         else:
-            eta_str = "calculating..."
+            eta_str = tr('calculating')
             
         return avg_speed, eta_str
         
@@ -1639,7 +2891,7 @@ class CancellableWhisperDownloader:
             self.update_status("completed")
             
             if progress_callback:
-                progress_callback(100, 0, "completed")
+                progress_callback(100, 0, tr('completed'))
                 
             return model
             
@@ -1653,7 +2905,7 @@ class CancellableWhisperDownloader:
                 for path in [model_path, temp_path]:
                     if os.path.exists(path):
                         os.remove(path)
-                raise Exception("Download canceled by user")
+                raise Exception(tr('canceled'))
             else:
                 logger.error(f"Download error: {e}")
                 self.update_status("failed")
@@ -1733,7 +2985,7 @@ class ModelDownloadThread(QThread):
         try:
             cleanup_corrupt_models(self.model_dir)
             
-            self.progress.emit(5, 0, "calculating...")
+            self.progress.emit(5, 0, tr('calculating'))
             logger.info("Starting model download process")
             self.update_status("starting")
             
@@ -1742,15 +2994,15 @@ class ModelDownloadThread(QThread):
             
             if validate_model_file(model_path_v1):
                 logger.info("Valid large-v1 model already exists, skipping download")
-                self.progress.emit(100, 0, "completed")
+                self.progress.emit(100, 0, tr('completed'))
                 self.update_status("completed")
-                self.finished.emit(True, "Model already exists and is valid!")
+                self.finished.emit(True, tr('model_exists'))
                 return
             elif validate_model_file(model_path):
                 logger.info("Valid large model already exists, skipping download")
-                self.progress.emit(100, 0, "completed")
+                self.progress.emit(100, 0, tr('completed'))
                 self.update_status("completed")
-                self.finished.emit(True, "Model already exists and is valid!")
+                self.finished.emit(True, tr('model_exists'))
                 return
             
             with self._lock:
@@ -1780,9 +3032,9 @@ class ModelDownloadThread(QThread):
             
             if validate_model_file(model_path_v1):
                 logger.info("Model downloaded and validated successfully")
-                self.progress.emit(100, 0, "completed")
+                self.progress.emit(100, 0, tr('completed'))
                 self.update_status("completed")
-                self.finished.emit(True, "Model large-v1 downloaded and validated successfully!")
+                self.finished.emit(True, tr('download_success'))
             else:
                 raise Exception("Downloaded model validation failed")
                 
@@ -1809,7 +3061,7 @@ class ModelDownloadThread(QThread):
 class NotyCaptionWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("NotyCaption Pro - Secure AI Caption Generator by NotY215")
+        self.setWindowTitle(tr('window_title'))
         self.setMinimumSize(1024, 768)
         logger.info("Initializing main window")
 
@@ -1821,6 +3073,9 @@ class NotyCaptionWindow(QMainWindow):
 
         # Load settings
         self.settings = load_settings()
+        
+        # Set language from settings
+        _translator.set_language(self.settings.get("language", "en"))
         
         # Initialize session manager
         self.session_manager = SessionManager()
@@ -1847,7 +3102,7 @@ class NotyCaptionWindow(QMainWindow):
         self.central_widget.setLayout(self.main_layout)
 
         # Status bar
-        self.statusBar().showMessage("Ready")
+        self.statusBar().showMessage(tr('ready'))
 
         # Create system tray icon
         self.create_tray_icon()
@@ -1869,6 +3124,7 @@ class NotyCaptionWindow(QMainWindow):
         # Threads
         self.enhancer_thread = None
         self.model_download_thread = None
+        self.progress_whisper = None
         self.player_timer = QTimer(self)
         self.player_timer.timeout.connect(self.update_timeline)
         self.player_timer.start(50)
@@ -1906,9 +3162,9 @@ class NotyCaptionWindow(QMainWindow):
         
         # Create tray menu
         tray_menu = QMenu()
-        show_action = tray_menu.addAction("Show Window")
+        show_action = tray_menu.addAction(tr('show_window'))
         show_action.triggered.connect(self.show_window)
-        quit_action = tray_menu.addAction("Quit")
+        quit_action = tray_menu.addAction(tr('quit'))
         quit_action.triggered.connect(self.quit_app)
         
         self.tray_icon.setContextMenu(tray_menu)
@@ -1956,22 +3212,22 @@ class NotyCaptionWindow(QMainWindow):
         if not self.settings.get("show_tooltips", True):
             return
             
-        self.import_btn.setToolTip("Import video or audio file (Ctrl+O)")
-        self.enhance_btn.setToolTip("Extract vocals only using Spleeter (Ctrl+E)")
-        self.gen_btn.setToolTip("Generate captions using Whisper AI (Ctrl+G)")
-        self.play_btn.setToolTip("Play/Pause audio (Space or Ctrl+P)")
-        self.edit_btn.setToolTip("Edit captions (Ctrl+S)")
-        self.download_btn.setToolTip("Download Whisper large-v1 model (~2.9 GB)")
-        self.login_button.setToolTip("Login with Google for online mode (Ctrl+L)")
-        self.reopen_btn.setToolTip("Reopen Colab notebook in browser (Ctrl+R)")
-        self.copy_url_btn.setToolTip("Copy notebook URL to clipboard")
+        self.import_btn.setToolTip(tr('import_tooltip'))
+        self.enhance_btn.setToolTip(tr('enhance_tooltip'))
+        self.gen_btn.setToolTip(tr('generate_tooltip'))
+        self.play_btn.setToolTip(tr('play_tooltip'))
+        self.edit_btn.setToolTip(tr('edit_tooltip'))
+        self.download_btn.setToolTip(tr('download_tooltip'))
+        self.login_button.setToolTip(tr('login_tooltip'))
+        self.reopen_btn.setToolTip(tr('reopen_tooltip'))
+        self.copy_url_btn.setToolTip(tr('copy_tooltip'))
         
         # Settings
-        self.mode_combo.setToolTip("Choose processing mode: Local or Online")
-        self.lang_combo.setToolTip("Select language and task")
-        self.words_spin.setToolTip("Number of words per subtitle line")
-        self.format_combo.setToolTip("Subtitle output format")
-        self.out_folder_edit.setToolTip("Output folder for generated subtitles")
+        self.mode_combo.setToolTip(tr('mode_tooltip'))
+        self.lang_combo.setToolTip(tr('lang_tooltip'))
+        self.words_spin.setToolTip(tr('words_tooltip'))
+        self.format_combo.setToolTip(tr('format_tooltip'))
+        self.out_folder_edit.setToolTip(tr('folder_tooltip'))
 
     def create_overlays(self):
         """Create overlay widgets"""
@@ -2001,12 +3257,12 @@ class NotyCaptionWindow(QMainWindow):
         """)
         prog_lay = QVBoxLayout(self.progress_container)
 
-        self.prog_title = QLabel("Operation in Progress")
+        self.prog_title = QLabel(tr('processing'))
         self.prog_title.setStyleSheet("color: white; font-size: 18px; font-weight: bold; margin-bottom: 10px;")
         self.prog_title.setAlignment(Qt.AlignCenter)
         prog_lay.addWidget(self.prog_title)
 
-        self.prog_info = QLabel("Starting...")
+        self.prog_info = QLabel(tr('starting'))
         self.prog_info.setStyleSheet("color: #cccccc; font-size: 12px; margin-bottom: 15px;")
         self.prog_info.setAlignment(Qt.AlignCenter)
         prog_lay.addWidget(self.prog_info)
@@ -2035,17 +3291,17 @@ class NotyCaptionWindow(QMainWindow):
 
         # Speed and ETA labels
         speed_layout = QHBoxLayout()
-        self.speed_label = QLabel("Speed: --")
+        self.speed_label = QLabel(f"{tr('speed')} --")
         self.speed_label.setStyleSheet("color: #cccccc; font-size: 11px;")
         speed_layout.addWidget(self.speed_label)
         
-        self.eta_label = QLabel("ETA: --")
+        self.eta_label = QLabel(f"{tr('eta')} --")
         self.eta_label.setStyleSheet("color: #cccccc; font-size: 11px;")
         speed_layout.addWidget(self.eta_label)
         speed_layout.addStretch()
         prog_lay.addLayout(speed_layout)
 
-        self.overlay_cancel_btn = QPushButton("Cancel Operation")
+        self.overlay_cancel_btn = QPushButton(tr('cancel'))
         self.overlay_cancel_btn.setStyleSheet("""
             QPushButton {
                 background: #d32f2f;
@@ -2072,7 +3328,7 @@ class NotyCaptionWindow(QMainWindow):
         self.overlay_cancel_btn.clicked.connect(lambda: self.cancel_current_operation(with_confirmation=self.settings.get("confirm_cancel", True)))
         self.overlay_cancel_btn.setEnabled(False)
 
-        self.overlay_force_cancel_btn = QPushButton("⚠️ Force Cancel (Emergency)")
+        self.overlay_force_cancel_btn = QPushButton(tr('force_cancel'))
         self.overlay_force_cancel_btn.setStyleSheet("""
             QPushButton {
                 background: #9a0000;
@@ -2132,12 +3388,12 @@ class NotyCaptionWindow(QMainWindow):
         """)
         download_lay = QVBoxLayout(download_container)
 
-        download_title = QLabel("Downloading Whisper large-v1 Model")
+        download_title = QLabel(tr('downloading'))
         download_title.setStyleSheet("color: white; font-size: 18px; font-weight: bold; margin-bottom: 10px;")
         download_title.setAlignment(Qt.AlignCenter)
         download_lay.addWidget(download_title)
 
-        self.download_info = QLabel("Starting download...")
+        self.download_info = QLabel(tr('starting'))
         self.download_info.setStyleSheet("color: #cccccc; font-size: 12px; margin-bottom: 15px;")
         self.download_info.setAlignment(Qt.AlignCenter)
         download_lay.addWidget(self.download_info)
@@ -2166,17 +3422,17 @@ class NotyCaptionWindow(QMainWindow):
 
         # Download speed and ETA
         download_speed_layout = QHBoxLayout()
-        self.download_speed_label = QLabel("Speed: --")
+        self.download_speed_label = QLabel(f"{tr('speed')} --")
         self.download_speed_label.setStyleSheet("color: #cccccc; font-size: 11px;")
         download_speed_layout.addWidget(self.download_speed_label)
         
-        self.download_eta_label = QLabel("ETA: --")
+        self.download_eta_label = QLabel(f"{tr('eta')} --")
         self.download_eta_label.setStyleSheet("color: #cccccc; font-size: 11px;")
         download_speed_layout.addWidget(self.download_eta_label)
         download_speed_layout.addStretch()
         download_lay.addLayout(download_speed_layout)
 
-        self.download_cancel_btn = QPushButton("Cancel Download")
+        self.download_cancel_btn = QPushButton(tr('cancel'))
         self.download_cancel_btn.setStyleSheet("""
             QPushButton {
                 background: #d32f2f;
@@ -2198,7 +3454,7 @@ class NotyCaptionWindow(QMainWindow):
         """)
         self.download_cancel_btn.clicked.connect(lambda: self.cancel_current_operation(with_confirmation=self.settings.get("confirm_cancel", True)))
         
-        self.download_force_cancel_btn = QPushButton("⚠️ Force Cancel (Emergency)")
+        self.download_force_cancel_btn = QPushButton(tr('force_cancel'))
         self.download_force_cancel_btn.setStyleSheet("""
             QPushButton {
                 background: #9a0000;
@@ -2254,8 +3510,8 @@ class NotyCaptionWindow(QMainWindow):
             self.hide()
             self.tray_icon.show()
             self.tray_icon.showMessage(
-                "NotyCaption",
-                "Application minimized to system tray",
+                APP_NAME,
+                tr('minimized_to_tray'),
                 QSystemTrayIcon.Information,
                 2000
             )
@@ -2265,9 +3521,8 @@ class NotyCaptionWindow(QMainWindow):
         if self._operation_in_progress or self.is_generating:
             reply = QMessageBox.question(
                 self,
-                "Operation in Progress",
-                "An operation is currently in progress.\n\n"
-                "Are you sure you want to exit? Any unsaved progress will be lost.",
+                tr('operation_in_progress'),
+                tr('exit_confirm'),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
@@ -2351,7 +3606,7 @@ class NotyCaptionWindow(QMainWindow):
         self.left_panel.setLayout(self.left_layout)
         self.top_layout.addWidget(self.left_panel)
 
-        title = QLabel("AI-Powered Caption Editor")
+        title = QLabel(tr('ai_caption_editor'))
         title.setFont(QFont("Segoe UI", 20, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("color: #ffffff; margin: 10px; padding: 10px;")
@@ -2370,11 +3625,11 @@ class NotyCaptionWindow(QMainWindow):
                 selection-background-color: #007acc;
             }
         """)
-        self.caption_edit.setPlaceholderText("Captions will appear here after generation...")
+        self.caption_edit.setPlaceholderText(tr('captions_placeholder'))
         self.left_layout.addWidget(self.caption_edit, stretch=1)
 
         btn_row = QHBoxLayout()
-        self.edit_btn = QPushButton("✏️ Edit Captions")
+        self.edit_btn = QPushButton(tr('edit_captions'))
         self.edit_btn.setMinimumHeight(60)
         self.edit_btn.setStyleSheet("""
             QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #0a84ff,stop:1 #0066cc); color: white; border-radius: 12px; font-weight: bold; font-size: 14px; padding: 12px; }
@@ -2384,7 +3639,7 @@ class NotyCaptionWindow(QMainWindow):
         self.edit_btn.setEnabled(False)
         btn_row.addWidget(self.edit_btn)
 
-        settings_btn = QPushButton("⚙️ Settings")
+        settings_btn = QPushButton(tr('settings'))
         settings_btn.setMinimumHeight(60)
         settings_btn.setStyleSheet("""
             QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #5e5ce6,stop:1 #4a4ad8); color: white; border-radius: 12px; font-weight: bold; font-size: 14px; padding: 12px; }
@@ -2392,7 +3647,7 @@ class NotyCaptionWindow(QMainWindow):
         settings_btn.clicked.connect(self.open_settings_dialog)
         btn_row.addWidget(settings_btn)
 
-        self.download_btn = QPushButton("📥 Download large-v1 Model")
+        self.download_btn = QPushButton(tr('download_model'))
         self.download_btn.setMinimumHeight(60)
         self.download_btn.setStyleSheet("""
             QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #ff9500,stop:1 #e68900); color: white; border-radius: 12px; font-weight: bold; font-size: 14px; padding: 12px; }
@@ -2418,7 +3673,7 @@ class NotyCaptionWindow(QMainWindow):
 
         row = 0
 
-        self.login_button = QPushButton("🔐 Login with Google (Enable Online Mode)")
+        self.login_button = QPushButton(tr('login_google'))
         self.login_button.setMinimumHeight(60)
         self.login_button.setStyleSheet("""
             QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #4285f4,stop:1 #3367d6); color: white; border-radius: 15px; font-weight: bold; font-size: 14px; padding: 15px; }
@@ -2428,27 +3683,35 @@ class NotyCaptionWindow(QMainWindow):
         self.right_layout.addWidget(self.login_button, row, 0, 1, 2)
         row += 1
 
-        mode_label = QLabel("Processing Mode:")
+        mode_label = QLabel(tr('processing_mode'))
         mode_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self.right_layout.addWidget(mode_label, row, 0)
         self.mode_combo = QComboBox()
-        self.mode_combo.addItems(["🖥️ Normal (Local Whisper)", "☁️ Online (Colab + Drive)"])
+        self.mode_combo.addItems([tr('normal_mode'), tr('online_mode')])
         self.mode_combo.setMinimumHeight(50)
         self.mode_combo.currentTextChanged.connect(self.on_mode_change)
         self.right_layout.addWidget(self.mode_combo, row, 1)
         row += 1
 
-        lang_label = QLabel("Language:")
+        lang_label = QLabel(tr('language'))
         lang_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self.right_layout.addWidget(lang_label, row, 0)
         self.lang_combo = QComboBox()
-        self.lang_combo.addItems(["🇺🇸 English (Transcribe)", "🇯🇵 Japanese → English (Translate)"])
+        self.lang_combo.addItems([
+            tr('english_transcribe'), tr('japanese_translate'), tr('chinese_transcribe'),
+            tr('french_transcribe'), tr('german_transcribe'), tr('spanish_transcribe'),
+            tr('russian_transcribe'), tr('arabic_transcribe'), tr('hindi_transcribe'),
+            tr('bengali_transcribe'), tr('urdu_transcribe'), tr('portuguese_transcribe'),
+            tr('italian_transcribe'), tr('dutch_transcribe'), tr('polish_transcribe'),
+            tr('turkish_transcribe'), tr('vietnamese_transcribe'), tr('thai_transcribe'),
+            tr('korean_transcribe')
+        ])
         self.lang_combo.setMinimumHeight(50)
-        self.lang_combo.setCurrentText(self.settings.get("default_lang", "🇺🇸 English (Transcribe)"))
+        self.lang_combo.setCurrentText(self.settings.get("default_lang", tr('english_transcribe')))
         self.right_layout.addWidget(self.lang_combo, row, 1)
         row += 1
 
-        wpl_label = QLabel("Words per Line:")
+        wpl_label = QLabel(tr('words_per_line'))
         wpl_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self.right_layout.addWidget(wpl_label, row, 0)
         self.words_spin = QSpinBox()
@@ -2459,7 +3722,7 @@ class NotyCaptionWindow(QMainWindow):
         self.right_layout.addWidget(self.words_spin, row, 1)
         row += 1
 
-        self.import_btn = QPushButton("📁 Import Video / Audio File")
+        self.import_btn = QPushButton(tr('import_media'))
         self.import_btn.setMinimumHeight(70)
         self.import_btn.setStyleSheet("""
             QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #007aff,stop:1 #0056b3); color: white; border-radius: 15px; font-weight: bold; font-size: 16px; padding: 15px; }
@@ -2468,28 +3731,28 @@ class NotyCaptionWindow(QMainWindow):
         self.right_layout.addWidget(self.import_btn, row, 0, 1, 2)
         row += 1
 
-        fmt_label = QLabel("Output Format:")
+        fmt_label = QLabel(tr('output_format'))
         fmt_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self.right_layout.addWidget(fmt_label, row, 0)
         self.format_combo = QComboBox()
-        self.format_combo.addItems(["📄 .SRT (Standard)", "🎨 .ASS (Advanced)"])
+        self.format_combo.addItems([tr('srt_format'), tr('ass_format')])
         self.format_combo.setMinimumHeight(50)
-        self.format_combo.setCurrentText(self.settings.get("output_format", "📄 .SRT (Standard)"))
+        self.format_combo.setCurrentText(self.settings.get("output_format", tr('srt_format')))
         self.right_layout.addWidget(self.format_combo, row, 1)
         row += 1
 
-        out_label = QLabel("Output Folder:")
+        out_label = QLabel(tr('output_folder'))
         out_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self.right_layout.addWidget(out_label, row, 0)
         self.out_folder_edit = QLineEdit()
         self.out_folder_edit.setReadOnly(True)
         self.out_folder_edit.setMinimumHeight(50)
-        self.out_folder_edit.setPlaceholderText("Default: Source Folder")
+        self.out_folder_edit.setPlaceholderText(tr('default_source'))
         self.out_folder_edit.setText(self.settings.get("last_output_folder", ""))
         self.right_layout.addWidget(self.out_folder_edit, row, 1)
         row += 1
 
-        browse_btn = QPushButton("📂 Browse Output Folder")
+        browse_btn = QPushButton(tr('browse_output'))
         browse_btn.setMinimumHeight(50)
         browse_btn.setStyleSheet("""
             QPushButton { background: #3a3a3c; color: white; border-radius: 10px; font-size: 12px; padding: 10px; }
@@ -2498,7 +3761,7 @@ class NotyCaptionWindow(QMainWindow):
         self.right_layout.addWidget(browse_btn, row, 0, 1, 2)
         row += 1
 
-        self.enhance_btn = QPushButton("🎤 Enhance Audio (Vocals Only - Spleeter)")
+        self.enhance_btn = QPushButton(tr('enhance_audio'))
         self.enhance_btn.setMinimumHeight(70)
         self.enhance_btn.setStyleSheet("""
             QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #ffcc00,stop:1 #cc9900); color: white; border-radius: 15px; font-weight: bold; font-size: 16px; padding: 15px; }
@@ -2519,11 +3782,11 @@ class NotyCaptionWindow(QMainWindow):
         
         # Status indicator
         status_row = QHBoxLayout()
-        status_label = QLabel("Status:")
+        status_label = QLabel(tr('status'))
         status_label.setStyleSheet("color: #cccccc; font-size: 10px; font-weight: bold;")
         status_row.addWidget(status_label)
         
-        self.status_value = QLabel("Idle")
+        self.status_value = QLabel(tr('idle'))
         self.status_value.setStyleSheet("color: #00c853; font-size: 10px;")
         status_row.addWidget(self.status_value)
         status_row.addStretch()
@@ -2531,7 +3794,7 @@ class NotyCaptionWindow(QMainWindow):
         
         # URL display
         url_row = QHBoxLayout()
-        self.url_label = QLabel("Notebook URL: Not available")
+        self.url_label = QLabel(f"{tr('notebook_url')} {tr('not_available')}")
         self.url_label.setStyleSheet("color: #cccccc; font-size: 10px;")
         self.url_label.setWordWrap(True)
         url_row.addWidget(self.url_label, 1)
@@ -2540,7 +3803,7 @@ class NotyCaptionWindow(QMainWindow):
         # Button row
         button_row = QHBoxLayout()
         
-        self.reopen_btn = QPushButton("🔗 Reopen Notebook")
+        self.reopen_btn = QPushButton(tr('reopen_notebook'))
         self.reopen_btn.setMinimumHeight(30)
         self.reopen_btn.setStyleSheet("""
             QPushButton { background: #00c853; color: white; border-radius: 5px; font-weight: bold; font-size: 10px; padding: 5px; }
@@ -2551,7 +3814,7 @@ class NotyCaptionWindow(QMainWindow):
         self.reopen_btn.setEnabled(False)
         button_row.addWidget(self.reopen_btn)
         
-        self.copy_url_btn = QPushButton("📋 Copy URL")
+        self.copy_url_btn = QPushButton(tr('copy_url'))
         self.copy_url_btn.setMinimumHeight(30)
         self.copy_url_btn.setStyleSheet("""
             QPushButton { background: #2196f3; color: white; border-radius: 5px; font-weight: bold; font-size: 10px; padding: 5px; }
@@ -2573,7 +3836,7 @@ class NotyCaptionWindow(QMainWindow):
         bottom_layout = QHBoxLayout()
         self.main_layout.addLayout(bottom_layout)
 
-        self.play_btn = QPushButton("▶️ Play / ⏸️ Pause")
+        self.play_btn = QPushButton(tr('play_pause'))
         self.play_btn.setMinimumHeight(70)
         self.play_btn.setStyleSheet("""
             QPushButton {
@@ -2603,7 +3866,7 @@ class NotyCaptionWindow(QMainWindow):
         self.timeline.sliderMoved.connect(self.seek_media_position)
         bottom_layout.addWidget(self.timeline, stretch=1)
 
-        self.gen_btn = QPushButton("🚀 Generate Captions")
+        self.gen_btn = QPushButton(tr('generate'))
         self.gen_btn.setMinimumHeight(70)
         self.gen_btn.setStyleSheet("""
             QPushButton { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #ff3b30,stop:1 #d32f2f); color: white; border-radius: 15px; font-weight: bold; font-size: 16px; padding: 15px; min-width: 180px; }
@@ -2617,14 +3880,14 @@ class NotyCaptionWindow(QMainWindow):
             QProgressBar { background: #22252a; border: 2px solid #3a3f44; border-radius: 10px; text-align: center; color: white; font-weight: bold; height: 25px; }
             QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #0a84ff,stop:1 #0066cc); border-radius: 8px; }
         """)
-        self.main_progress.setFormat("Progress: %p%")
+        self.main_progress.setFormat(f"{tr('progress')}: %p%")
         bottom_layout.addWidget(self.main_progress)
 
         logger.info("Bottom panel setup complete")
 
     def setup_footer(self):
         """Setup footer with copyright"""
-        footer = QLabel("NotyCaption Pro • Secure Edition 2026 • All rights reserved by NotY215 • Powered by Whisper AI & Spleeter")
+        footer = QLabel(tr('footer'))
         footer.setAlignment(Qt.AlignCenter)
         footer.setStyleSheet("color: #6c757d; font-size: 10px; margin: 15px 0; padding: 10px; border-top: 1px solid #404040;")
         self.main_layout.addWidget(footer)
@@ -2652,7 +3915,7 @@ class NotyCaptionWindow(QMainWindow):
         self.service = None
         self._closing = False
         self._cancel_processed = False
-        self.mode_combo.setCurrentText("☁️ Online (Colab + Drive)" if self.mode == "online" else "🖥️ Normal (Local Whisper)")
+        self.mode_combo.setCurrentText(tr('online_mode') if self.mode == "online" else tr('normal_mode'))
 
         self.update_download_button_visibility()
         self.enhance_btn.setEnabled(bool(self.audio_file))
@@ -2716,7 +3979,7 @@ class NotyCaptionWindow(QMainWindow):
             logger.info("Dark theme applied")
         logger.info(f"Theme applied: {theme}")
 
-    def freeze_ui(self, freeze=True, message="Processing... Please wait or cancel"):
+    def freeze_ui(self, freeze=True, message=tr('processing')):
         """Freeze/unfreeze UI"""
         widgets_to_disable = [
             self.import_btn,
@@ -2747,7 +4010,7 @@ class NotyCaptionWindow(QMainWindow):
             self.overlay_cancel_btn.setEnabled(True)
             self.overlay_cancel_btn.setFocus()
             self.prog_title.setText(message)
-            self.prog_info.setText("Processing...")
+            self.prog_info.setText(tr('processing'))
             self.operation_progress.setValue(0)
             self.statusBar().showMessage(message, 0)
             self.show_cancel_only(True)
@@ -2782,12 +4045,12 @@ class NotyCaptionWindow(QMainWindow):
         self.operation_progress.setValue(0)
         self.main_progress.setValue(0)
         self.download_progress.setValue(0)
-        self.prog_info.setText("Ready")
-        self.download_info.setText("Ready")
-        self.speed_label.setText("Speed: --")
-        self.eta_label.setText("ETA: --")
-        self.download_speed_label.setText("Speed: --")
-        self.download_eta_label.setText("ETA: --")
+        self.prog_info.setText(tr('ready'))
+        self.download_info.setText(tr('ready'))
+        self.speed_label.setText(f"{tr('speed')} --")
+        self.eta_label.setText(f"{tr('eta')} --")
+        self.download_speed_label.setText(f"{tr('speed')} --")
+        self.download_eta_label.setText(f"{tr('eta')} --")
 
     def progress_update(self, value, eta=None, speed=None):
         """Update progress bars with speed and ETA"""
@@ -2795,8 +4058,8 @@ class NotyCaptionWindow(QMainWindow):
         self.main_progress.setValue(value)
         
         if eta:
-            self.eta_label.setText(f"ETA: {eta}")
-            self.download_eta_label.setText(f"ETA: {eta}")
+            self.eta_label.setText(f"{tr('eta')} {eta}")
+            self.download_eta_label.setText(f"{tr('eta')} {eta}")
         if speed:
             if speed > 1024 * 1024:
                 speed_str = f"{speed/(1024*1024):.1f} MB/s"
@@ -2804,8 +4067,8 @@ class NotyCaptionWindow(QMainWindow):
                 speed_str = f"{speed/1024:.1f} KB/s"
             else:
                 speed_str = f"{speed:.1f} B/s"
-            self.speed_label.setText(f"Speed: {speed_str}")
-            self.download_speed_label.setText(f"Speed: {speed_str}")
+            self.speed_label.setText(f"{tr('speed')} {speed_str}")
+            self.download_speed_label.setText(f"{tr('speed')} {speed_str}")
 
     def show_error_details(self, title, error, details):
         """Show detailed error message"""
@@ -2822,12 +4085,12 @@ class NotyCaptionWindow(QMainWindow):
         self._current_notebook_url = url
         if url:
             display_url = url if len(url) < 50 else url[:47] + "..."
-            self.url_label.setText(f"Notebook URL: {display_url}")
+            self.url_label.setText(f"{tr('notebook_url')} {display_url}")
             self.url_label.setToolTip(url)
             self.reopen_btn.setEnabled(True)
             self.copy_url_btn.setEnabled(True)
         else:
-            self.url_label.setText("Notebook URL: Not available")
+            self.url_label.setText(f"{tr('notebook_url')} {tr('not_available')}")
             self.url_label.setToolTip("")
             self.reopen_btn.setEnabled(False)
             self.copy_url_btn.setEnabled(False)
@@ -2859,18 +4122,18 @@ class NotyCaptionWindow(QMainWindow):
         """Reopen Colab notebook"""
         if self._current_notebook_url:
             webbrowser.open(self._current_notebook_url)
-            self.statusBar().showMessage("Reopening Colab notebook...", 3000)
+            self.statusBar().showMessage(tr('reopening_notebook'), 3000)
         else:
-            QMessageBox.information(self, "No Notebook", "No active Colab notebook to reopen.")
+            QMessageBox.information(self, tr('no_notebook'), tr('no_notebook_msg'))
 
     def copy_notebook_url(self):
         """Copy notebook URL to clipboard"""
         if self._current_notebook_url:
             clipboard = QApplication.clipboard()
             clipboard.setText(self._current_notebook_url)
-            self.statusBar().showMessage("Notebook URL copied to clipboard", 3000)
+            self.statusBar().showMessage(tr('url_copied'), 3000)
         else:
-            QMessageBox.information(self, "No URL", "No notebook URL to copy.")
+            QMessageBox.information(self, tr('no_url'), tr('no_url_msg'))
 
     def open_settings_dialog(self):
         """Open settings dialog"""
@@ -2879,19 +4142,89 @@ class NotyCaptionWindow(QMainWindow):
         dlg.settingsChanged.connect(self.update_from_settings)
         if dlg.exec_() == QDialog.Accepted:
             logger.info("Settings dialog accepted")
+            # Force UI update for theme and language
+            self.apply_theme()
+            self.retranslate_ui()
         else:
             logger.info("Settings dialog canceled")
+
+    def retranslate_ui(self):
+        """Retranslate all UI elements"""
+        self.setWindowTitle(tr('window_title'))
+        self.statusBar().showMessage(tr('ready'))
+        
+        # Left panel
+        self.edit_btn.setText(tr('edit_captions'))
+        self.download_btn.setText(tr('download_model'))
+        
+        # Right panel
+        self.login_button.setText(tr('login_google'))
+        self.import_btn.setText(tr('import_media'))
+        self.enhance_btn.setText(tr('enhance_audio'))
+        self.reopen_btn.setText(tr('reopen_notebook'))
+        self.copy_url_btn.setText(tr('copy_url'))
+        
+        # Bottom panel
+        self.play_btn.setText(tr('play_pause'))
+        self.gen_btn.setText(tr('generate'))
+        
+        # Update comboboxes
+        current_mode = self.mode_combo.currentText()
+        self.mode_combo.clear()
+        self.mode_combo.addItems([tr('normal_mode'), tr('online_mode')])
+        if current_mode == tr('online_mode') or current_mode == "☁️ Online (Colab + Drive)":
+            self.mode_combo.setCurrentText(tr('online_mode'))
+        else:
+            self.mode_combo.setCurrentText(tr('normal_mode'))
+            
+        current_lang = self.lang_combo.currentText()
+        self.lang_combo.clear()
+        self.lang_combo.addItems([
+            tr('english_transcribe'), tr('japanese_translate'), tr('chinese_transcribe'),
+            tr('french_transcribe'), tr('german_transcribe'), tr('spanish_transcribe'),
+            tr('russian_transcribe'), tr('arabic_transcribe'), tr('hindi_transcribe'),
+            tr('bengali_transcribe'), tr('urdu_transcribe'), tr('portuguese_transcribe'),
+            tr('italian_transcribe'), tr('dutch_transcribe'), tr('polish_transcribe'),
+            tr('turkish_transcribe'), tr('vietnamese_transcribe'), tr('thai_transcribe'),
+            tr('korean_transcribe')
+        ])
+        if current_lang:
+            self.lang_combo.setCurrentText(current_lang)
+            
+        current_format = self.format_combo.currentText()
+        self.format_combo.clear()
+        self.format_combo.addItems([tr('srt_format'), tr('ass_format')])
+        if current_format:
+            self.format_combo.setCurrentText(current_format)
+            
+        # Status display
+        self.status_value.setText(tr('idle'))
+        self.url_label.setText(f"{tr('notebook_url')} {tr('not_available')}")
+        
+        # Progress bars
+        self.main_progress.setFormat(f"{tr('progress')}: %p%")
+        self.prog_title.setText(tr('processing'))
+        self.prog_info.setText(tr('ready'))
+        self.speed_label.setText(f"{tr('speed')} --")
+        self.eta_label.setText(f"{tr('eta')} --")
+        self.download_speed_label.setText(f"{tr('speed')} --")
+        self.download_eta_label.setText(f"{tr('eta')} --")
+        
+        # Footer
+        footer = self.findChild(QLabel)
+        if footer:
+            footer.setText(tr('footer'))
+            
+        logger.info("UI retranslated")
 
     def update_from_settings(self, new_settings):
         """Update from new settings"""
         self.settings = new_settings
         self.apply_ui_scale()
-        self.apply_theme()
-        self.lang_combo.setCurrentText(new_settings.get("default_lang", "🇺🇸 English (Transcribe)"))
+        self.lang_combo.setCurrentText(new_settings.get("default_lang", tr('english_transcribe')))
         self.words_spin.setValue(new_settings.get("words_per_line", 5))
-        self.format_combo.setCurrentText(new_settings.get("output_format", "📄 .SRT (Standard)"))
+        self.format_combo.setCurrentText(new_settings.get("output_format", tr('srt_format')))
         self.update_download_button_visibility()
-        self.mode_combo.setCurrentText("☁️ Online (Colab + Drive)" if new_settings.get("last_mode", "normal") == "online" else "🖥️ Normal (Local Whisper)")
         
         # Update online handler settings
         if hasattr(self, 'online_handler'):
@@ -2921,9 +4254,9 @@ class NotyCaptionWindow(QMainWindow):
         """Initiate Google login"""
         client_secrets = load_client_secrets()
         if not client_secrets:
-            msg = "Google client secrets not found.\nIn dev mode, ensure client.json exists.\nIn EXE mode, rebuild with build.py to encrypt client.notycapz."
+            msg = tr('missing_credentials')
             logger.warning(msg)
-            QMessageBox.warning(self, "Missing Credentials", msg)
+            QMessageBox.warning(self, tr('missing_credentials'), msg)
             return
 
         client_path = tempfile.mktemp(suffix='.json')
@@ -2937,13 +4270,13 @@ class NotyCaptionWindow(QMainWindow):
             self.online_handler.service = build("drive", "v3", credentials=creds)
             self.login_button.setVisible(False)
             self.mode = "online"
-            self.mode_combo.setCurrentText("☁️ Online (Colab + Drive)")
+            self.mode_combo.setCurrentText(tr('online_mode'))
             self.update_download_button_visibility()
             logger.info("Google login successful - Online mode enabled")
-            QMessageBox.information(self, "Login Success", "Google Drive connected. Online mode ready.")
+            QMessageBox.information(self, tr('login_success'), tr('drive_connected'))
         except Exception as login_err:
             logger.error(f"Google login failed: {traceback.format_exc()}")
-            QMessageBox.critical(self, "Login Error", f"Authentication failed:\n{str(login_err)}")
+            QMessageBox.critical(self, tr('login_error'), f"{tr('auth_failed')}\n{str(login_err)}")
         finally:
             if os.path.exists(client_path):
                 os.remove(client_path)
@@ -2959,7 +4292,7 @@ class NotyCaptionWindow(QMainWindow):
                 self.online_handler.service = build("drive", "v3", credentials=creds)
                 self.login_button.setVisible(False)
                 self.mode = "online"
-                self.mode_combo.setCurrentText("☁️ Online (Colab + Drive)")
+                self.mode_combo.setCurrentText(tr('online_mode'))
                 self.update_download_button_visibility()
                 logger.info("Existing credentials loaded and refreshed - Online mode activated")
             except Exception as cred_err:
@@ -2970,7 +4303,7 @@ class NotyCaptionWindow(QMainWindow):
 
     def on_mode_change(self, text):
         """Handle mode change"""
-        self.mode = "online" if "Online" in text else "normal"
+        self.mode = "online" if text == tr('online_mode') else "normal"
         self.settings["last_mode"] = self.mode
         save_settings(self.settings)
         self.update_download_button_visibility()
@@ -2989,7 +4322,7 @@ class NotyCaptionWindow(QMainWindow):
             return model
         except Exception as load_err:
             logger.error(f"Whisper load failed: {traceback.format_exc()}")
-            QMessageBox.critical(self, "Model Load Error", f"Failed to load Whisper model:\n{str(load_err)}")
+            QMessageBox.critical(self, tr('model_load_error'), f"{tr('model_load_failed')}\n{str(load_err)}")
             raise RuntimeError(f"Model load error: {str(load_err)}")
 
     def on_media_status_changed(self, status):
@@ -2999,7 +4332,7 @@ class NotyCaptionWindow(QMainWindow):
             logger.info("Media loaded for playback")
         elif status in (QMediaPlayer.NoMedia, QMediaPlayer.InvalidMedia):
             self.play_btn.setEnabled(False)
-            self.play_btn.setText("▶️ Play / ⏸️ Pause")
+            self.play_btn.setText(tr('play_pause'))
             logger.warning("Media status invalid")
 
     def on_position_changed(self, position):
@@ -3014,9 +4347,9 @@ class NotyCaptionWindow(QMainWindow):
 
     def on_player_error(self, error):
         """Handle player error"""
-        err_str = self.player.errorString() or "Unknown error"
+        err_str = self.player.errorString() or tr('unknown_error')
         logger.warning(f"Media player error: {err_str}")
-        QMessageBox.warning(self, "Playback Error", f"Audio playback failed:\n{err_str}")
+        QMessageBox.warning(self, tr('playback_error'), f"{tr('playback_failed')}\n{err_str}")
 
     def update_timeline(self):
         """Update timeline slider"""
@@ -3026,7 +4359,7 @@ class NotyCaptionWindow(QMainWindow):
     def toggle_media_playback(self):
         """Toggle media playback"""
         if not self.audio_file or not os.path.exists(self.audio_file):
-            QMessageBox.warning(self, "No Audio", "No audio file loaded or file was deleted.")
+            QMessageBox.warning(self, tr('no_audio'), tr('no_audio_msg'))
             logger.warning("Play clicked → no audio_file")
             return
 
@@ -3034,7 +4367,7 @@ class NotyCaptionWindow(QMainWindow):
 
         if self.player.state() == QMediaPlayer.PlayingState:
             self.player.pause()
-            self.play_btn.setText("▶️ Play / ⏸️ Pause")
+            self.play_btn.setText(tr('play_pause'))
             logger.info("→ Paused")
             return
 
@@ -3046,18 +4379,16 @@ class NotyCaptionWindow(QMainWindow):
             logger.info("Media reloaded successfully")
 
             self.player.play()
-            self.play_btn.setText("⏸️ Playing...")
+            self.play_btn.setText(tr('playing'))
             logger.info("→ Play command sent")
 
             QTimer.singleShot(1500, self.check_playback_status)
 
         except Exception as play_err:
             logger.error(f"Playback setup failed: {play_err}", exc_info=True)
-            QMessageBox.critical(self, "Critical Playback Error",
-                                f"Qt could not prepare audio:\n{str(play_err)}\n\n"
-                                "Try:\n1. Play the .temp.wav file in VLC/Media Player\n"
-                                "2. If it plays → issue is QtMultimedia\n"
-                                "3. Re-import or restart app")
+            QMessageBox.critical(self, tr('playback_error'),
+                                f"{tr('qt_prepare_failed')}\n{str(play_err)}\n\n"
+                                f"{tr('playback_tips')}")
 
     def check_playback_status(self):
         """Check playback status"""
@@ -3067,12 +4398,8 @@ class NotyCaptionWindow(QMainWindow):
             logger.info("Media loaded OK")
         elif status in (QMediaPlayer.NoMedia, QMediaPlayer.InvalidMedia):
             logger.error("Media invalid after load attempt")
-            QMessageBox.warning(self, "Cannot Play",
-                                "Qt says media is invalid.\n\n"
-                                "Common fixes:\n"
-                                "• Shorten filename (remove spaces/special chars)\n"
-                                "• Re-extract audio\n"
-                                "• Install/update K-Lite Codec Pack (Basic)")
+            QMessageBox.warning(self, tr('cannot_play'),
+                               tr('media_invalid_msg'))
 
     def seek_media_position(self, position):
         """Seek to position"""
@@ -3115,8 +4442,8 @@ class NotyCaptionWindow(QMainWindow):
         """Import media file"""
         logger.info("Media import dialog opened")
         if not file_path:
-            filter_str = "Media Files (*.mp4 *.mkv *.avi *.mov *.webm *.flv *.wmv *.mp3 *.wav *.m4a *.aac *.flac *.ogg *.wma *.amr *.opus)"
-            file_path, _ = QFileDialog.getOpenFileName(self, "Import Video or Audio", self.settings.get("last_input_file", ""), filter_str)
+            filter_str = tr('media_filter')
+            file_path, _ = QFileDialog.getOpenFileName(self, tr('import_media'), self.settings.get("last_input_file", ""), filter_str)
             
         if not file_path:
             logger.info("Import cancelled by user")
@@ -3177,13 +4504,13 @@ class NotyCaptionWindow(QMainWindow):
             except Exception as aud_err:
                 logger.warning(f"Audio conversion failed: {aud_err}")
                 self.audio_file = file_path
-                QMessageBox.warning(self, "Conversion Warning", "Using original file (may be slower).")
+                QMessageBox.warning(self, tr('conversion_warning'), tr('conversion_warning_msg'))
 
         self.last_temp_wav = new_temp if success else None
         self.loaded_media = None
         self.play_btn.setEnabled(True)
         logger.info(f"Audio prepared: {self.audio_file}")
-        QMessageBox.information(self, "Import Complete", "Media imported and audio ready for processing.")
+        QMessageBox.information(self, tr('import_complete'), tr('import_success'))
 
     def debug_audio_file(self):
         """Debug audio file"""
@@ -3196,7 +4523,7 @@ class NotyCaptionWindow(QMainWindow):
 
     def browse_output_folder(self):
         """Browse output folder"""
-        d = QFileDialog.getExistingDirectory(self, "Select Output Folder", self.output_folder or "")
+        d = QFileDialog.getExistingDirectory(self, tr('browse_output'), self.output_folder or "")
         if d:
             self.output_folder = d
             self.out_folder_edit.setText(d)
@@ -3207,12 +4534,12 @@ class NotyCaptionWindow(QMainWindow):
     def enhance_audio_vocals(self):
         """Enhance audio vocals"""
         if not self.audio_file or not os.path.exists(self.audio_file):
-            QMessageBox.warning(self, "No Audio", "Import media first.")
+            QMessageBox.warning(self, tr('no_audio'), tr('import_first'))
             logger.warning("Enhance clicked without audio")
             return
 
         logger.info("Starting vocal enhancement...")
-        self.freeze_ui(True, "Enhancing vocals with Spleeter... (this may take a while)")
+        self.freeze_ui(True, tr('enhancing'))
         temp_dir = self.settings.get("temp_dir", tempfile.gettempdir())
         self.enhancer_thread = AudioEnhancerThread(self.audio_file, temp_dir, self)
         self.enhancer_thread.progress.connect(self.on_enhance_progress)
@@ -3240,10 +4567,10 @@ class NotyCaptionWindow(QMainWindow):
                 self.last_temp_wav = final_path
                 self.play_btn.setEnabled(True)
                 logger.info(f"Enhanced audio saved: {final_path}")
-                QMessageBox.information(self, "Enhancement Complete", f"Vocals-only audio created:\n{final_path}")
+                QMessageBox.information(self, tr('enhancement_complete'), f"{tr('enhancement_success')}\n{final_path}")
             except Exception as move_err:
                 logger.error(f"Move enhanced file failed: {move_err}")
-                QMessageBox.warning(self, "Save Error", str(move_err))
+                QMessageBox.warning(self, tr('save_error'), str(move_err))
         self.enhancer_thread = None
         logger.info("Enhancer thread finished")
 
@@ -3251,7 +4578,7 @@ class NotyCaptionWindow(QMainWindow):
         """Handle enhance error"""
         self.freeze_ui(False)
         logger.error(f"Enhancement error: {error_msg}")
-        QMessageBox.critical(self, "Enhancement Failed", error_msg)
+        QMessageBox.critical(self, tr('enhancement_failed'), error_msg)
         self.enhancer_thread = None
 
     def open_model_download_dialog(self):
@@ -3261,25 +4588,25 @@ class NotyCaptionWindow(QMainWindow):
             
         logger.info("Opening model download dialog")
         dlg = QDialog(self)
-        dlg.setWindowTitle("Whisper large-v1 Model Download")
+        dlg.setWindowTitle(tr('download_model'))
         dlg.setFixedSize(520, 340)
         lay = QVBoxLayout()
         dlg.setLayout(lay)
 
-        title = QLabel("Download Whisper large-v1 Model (~2.9 GB)")
+        title = QLabel(tr('download_model_desc'))
         title.setFont(QFont("Segoe UI", 14, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
         lay.addWidget(title)
 
-        desc = QLabel("large-v1 is the most accurate model.\nRequires ~3 GB disk space.\nDownload may take 5-30 minutes depending on internet speed.")
+        desc = QLabel(tr('model_info'))
         desc.setWordWrap(True)
         desc.setAlignment(Qt.AlignCenter)
         lay.addWidget(desc)
 
         options = [
-            "🏠 Download to Default Folder (App Root)",
-            "📁 Choose Custom Download Folder",
-            "🔗 I already have large-v1.pt (link existing file)"
+            tr('download_default'),
+            tr('download_custom'),
+            tr('link_existing')
         ]
         rb_group = QButtonGroup()
         rbs = [QRadioButton(opt) for opt in options]
@@ -3289,10 +4616,10 @@ class NotyCaptionWindow(QMainWindow):
             rb_group.addButton(rb)
 
         btn_lay = QHBoxLayout()
-        ok_btn = QPushButton("Start Download / Link")
+        ok_btn = QPushButton(tr('start_download'))
         ok_btn.setStyleSheet("background:#00c853; color:white; padding:12px; border-radius:8px; font-weight:bold;")
         ok_btn.clicked.connect(dlg.accept)
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton(tr('cancel'))
         cancel_btn.setStyleSheet("background:#d32f2f; color:white; padding:12px; border-radius:8px;")
         cancel_btn.clicked.connect(dlg.reject)
         btn_lay.addStretch()
@@ -3307,23 +4634,23 @@ class NotyCaptionWindow(QMainWindow):
         selected = next(i for i, rb in enumerate(rbs) if rb.isChecked())
 
         if selected == 2:
-            file_path, _ = QFileDialog.getOpenFileName(self, "Select large-v1.pt", "", "PyTorch Model (*.pt)")
+            file_path, _ = QFileDialog.getOpenFileName(self, tr('select_model'), "", "PyTorch Model (*.pt)")
             if file_path and os.path.basename(file_path) == "large-v1.pt":
                 if validate_model_file(file_path):
                     model_dir = os.path.dirname(file_path)
                     self.settings["models_dir"] = model_dir
                     save_settings(self.settings)
                     self.update_download_button_visibility()
-                    QMessageBox.information(self, "Success", "Valid model file linked successfully!")
+                    QMessageBox.information(self, tr('success'), tr('model_linked'))
                     logger.info(f"Valid model linked from: {model_dir}")
                 else:
-                    QMessageBox.warning(self, "Invalid File", "The selected model file appears to be corrupt or incomplete.")
+                    QMessageBox.warning(self, tr('invalid_file'), tr('model_corrupt'))
             else:
-                QMessageBox.warning(self, "Invalid File", "Please select a file named exactly 'large-v1.pt'")
+                QMessageBox.warning(self, tr('invalid_file'), tr('select_large_v1'))
             return
 
         if selected == 1:
-            path = QFileDialog.getExistingDirectory(self, "Select Folder to Download Model")
+            path = QFileDialog.getExistingDirectory(self, tr('select_folder'))
             if not path:
                 logger.info("Custom folder selection canceled")
                 return
@@ -3341,10 +4668,10 @@ class NotyCaptionWindow(QMainWindow):
         self.download_cancel_btn.raise_()
         self.download_force_cancel_btn.hide()
         self.download_progress.setValue(0)
-        self.download_info.setText("Starting download...")
+        self.download_info.setText(tr('starting'))
         self.download_cancel_btn.setEnabled(True)
 
-        self.freeze_ui(True, "Downloading Whisper large-v1 model... (5–30 min)")
+        self.freeze_ui(True, tr('downloading_model'))
 
         self.model_download_thread = ModelDownloadThread(path, self)
         self.model_download_thread.progress.connect(self.on_download_progress)
@@ -3373,18 +4700,18 @@ class NotyCaptionWindow(QMainWindow):
                 if info["total"] > 0:
                     downloaded_mb = info["downloaded"] / (1024 * 1024)
                     total_mb = info["total"] / (1024 * 1024)
-                    self.download_info.setText(f"Downloading... {downloaded_mb:.1f} MB / {total_mb:.1f} MB ({value}%)")
-                    self.prog_info.setText(f"Downloading... {downloaded_mb:.1f} MB / {total_mb:.1f} MB")
+                    self.download_info.setText(f"{tr('downloading')}... {downloaded_mb:.1f} MB / {total_mb:.1f} MB ({value}%)")
+                    self.prog_info.setText(f"{tr('downloading')}... {downloaded_mb:.1f} MB / {total_mb:.1f} MB")
                 else:
-                    self.download_info.setText(f"Downloading... ({value}%)")
-                    self.prog_info.setText(f"Downloading... ({value}%)")
+                    self.download_info.setText(f"{tr('downloading')}... ({value}%)")
+                    self.prog_info.setText(f"{tr('downloading')}... ({value}%)")
             else:
-                self.download_info.setText(f"Downloading... ({value}%)")
-                self.prog_info.setText(f"Downloading... ({value}%)")
+                self.download_info.setText(f"{tr('downloading')}... ({value}%)")
+                self.prog_info.setText(f"{tr('downloading')}... ({value}%)")
         except Exception as e:
             logger.debug(f"Progress display error: {e}")
-            self.download_info.setText(f"Downloading... ({value}%)")
-            self.prog_info.setText(f"Downloading... ({value}%)")
+            self.download_info.setText(f"{tr('downloading')}... ({value}%)")
+            self.prog_info.setText(f"{tr('downloading')}... ({value}%)")
 
     def on_model_download_finished(self, success, message):
         """Handle download finished"""
@@ -3394,10 +4721,10 @@ class NotyCaptionWindow(QMainWindow):
         
         if success:
             self.update_download_button_visibility()
-            QMessageBox.information(self, "Success", message)
+            QMessageBox.information(self, tr('success'), message)
             logger.info("Model download finished successfully")
         else:
-            QMessageBox.critical(self, "Download Failed", message)
+            QMessageBox.critical(self, tr('download_failed'), message)
             logger.error("Model download failed")
         self.model_download_thread = None
         self._cancel_processed = False
@@ -3416,8 +4743,8 @@ class NotyCaptionWindow(QMainWindow):
         
         QMessageBox.information(
             self, 
-            "Download Canceled", 
-            "The model download has been canceled and the partial file has been deleted."
+            tr('download_canceled'), 
+            tr('canceled_msg')
         )
         self.model_download_thread = None
         self._cancel_processed = False
@@ -3425,17 +4752,17 @@ class NotyCaptionWindow(QMainWindow):
     def start_caption_generation(self):
         """Start caption generation"""
         if self.is_generating:
-            QMessageBox.warning(self, "In Progress", "Generation already running.")
+            QMessageBox.warning(self, tr('in_progress'), tr('already_running'))
             logger.warning("Generation attempted while in progress")
             return
 
         if not self.audio_file or not os.path.exists(self.audio_file):
-            QMessageBox.warning(self, "No Media", "Import audio/video first.")
+            QMessageBox.warning(self, tr('no_media'), tr('import_first'))
             logger.warning("Generation attempted without media")
             return
 
         self.is_generating = True
-        self.freeze_ui(True, "Generating captions... Please wait or cancel")
+        self.freeze_ui(True, tr('generating'))
         self.reset_progress_bars()
         logger.info("=== Secure Caption Generation Started ===")
 
@@ -3475,27 +4802,52 @@ class NotyCaptionWindow(QMainWindow):
     def on_auto_enhance_error(self, error):
         """Handle auto enhance error"""
         logger.error(f"Auto-enhance error: {error}")
-        QMessageBox.warning(self, "Auto-Enhance Failed", error)
+        QMessageBox.warning(self, tr('enhancement_failed'), error)
         self.enhancer_thread = None
         self.proceed_to_transcription(self.audio_file)
 
     def proceed_to_transcription(self, audio_to_use):
         """Proceed to transcription"""
         lang_text = self.lang_combo.currentText()
-        lang_code = "ja" if "Japanese" in lang_text else "en"
-        task = "translate" if "Translate" in lang_text else "transcribe"
+        
+        # Map UI language text to Whisper language codes
+        lang_map = {
+            tr('english_transcribe'): 'en',
+            tr('japanese_translate'): 'ja',
+            tr('japanese_transcribe'): 'ja',
+            tr('chinese_transcribe'): 'zh',
+            tr('french_transcribe'): 'fr',
+            tr('german_transcribe'): 'de',
+            tr('spanish_transcribe'): 'es',
+            tr('russian_transcribe'): 'ru',
+            tr('arabic_transcribe'): 'ar',
+            tr('hindi_transcribe'): 'hi',
+            tr('bengali_transcribe'): 'bn',
+            tr('urdu_transcribe'): 'ur',
+            tr('portuguese_transcribe'): 'pt',
+            tr('italian_transcribe'): 'it',
+            tr('dutch_transcribe'): 'nl',
+            tr('polish_transcribe'): 'pl',
+            tr('turkish_transcribe'): 'tr',
+            tr('vietnamese_transcribe'): 'vi',
+            tr('thai_transcribe'): 'th',
+            tr('korean_transcribe'): 'ko'
+        }
+        
+        lang_code = lang_map.get(lang_text, 'en')
+        task = "translate" if "Translate" in lang_text or "翻译" in lang_text or "traduire" in lang_text or "übersetzen" in lang_text else "transcribe"
 
         wpl = self.words_spin.value()
         fmt_map = {
-            "📄 .SRT (Standard)": ".srt",
-            "🎨 .ASS (Advanced)": ".ass",
+            tr('srt_format'): ".srt",
+            tr('ass_format'): ".ass",
         }
         fmt = fmt_map.get(self.format_combo.currentText(), ".srt")
         base = os.path.splitext(os.path.basename(self.input_file or "audio"))[0]
         out_path = os.path.join(self.output_folder or APP_DATA_DIR, f"{base}_captions{fmt}")
 
         if os.path.exists(out_path):
-            reply = QMessageBox.question(self, "Overwrite File?", f"File exists:\n{out_path}\nOverwrite?", QMessageBox.Yes | QMessageBox.No)
+            reply = QMessageBox.question(self, tr('overwrite'), tr('overwrite_msg').format(out_path), QMessageBox.Yes | QMessageBox.No)
             if reply == QMessageBox.No:
                 self.is_generating = False
                 self.freeze_ui(False)
@@ -3517,13 +4869,17 @@ class NotyCaptionWindow(QMainWindow):
             self.perform_local_transcription(audio_to_use, lang_code, task, wpl, fmt, out_path)
 
     def perform_local_transcription(self, audio_path, lang_code, task, wpl, fmt, out_path):
-        """Perform local transcription"""
+        """Perform local transcription with real progress"""
         try:
-            self.progress_update(20)
+            self.progress_update(10)
             model = self.load_whisper_model()
-            self.progress_update(30)
-
-            logger.info("Starting local transcription...")
+            
+            # Create progress wrapper
+            self.progress_whisper = ProgressWhisper(lambda p, msg: self.update_transcription_progress(p, msg))
+            
+            logger.info("Starting local transcription with progress tracking...")
+            
+            # Run transcription with progress
             result = model.transcribe(
                 audio_path,
                 language=lang_code,
@@ -3531,14 +4887,17 @@ class NotyCaptionWindow(QMainWindow):
                 word_timestamps=True,
                 verbose=False
             )
-            self.progress_update(80)
-            logger.info("Transcription complete")
-
-            self.subtitles = []
-            self.display_lines = []
-            idx = 1
-
-            for seg in result.get("segments", []):
+            
+            # Manual progress simulation since whisper doesn't provide real progress
+            total_segments = len(result.get("segments", []))
+            for i, seg in enumerate(result.get("segments", [])):
+                if self.progress_whisper and self.progress_whisper.is_canceled():
+                    raise Exception(tr('canceled'))
+                    
+                progress = 20 + int((i / max(1, total_segments)) * 60)
+                self.update_transcription_progress(progress, f"{tr('processing_segment')} {i+1}/{total_segments}")
+                
+                # Process segment for word-level timestamps
                 text = seg.get("text", "").strip()
                 if not text:
                     continue
@@ -3557,24 +4916,24 @@ class NotyCaptionWindow(QMainWindow):
                     word_starts = [start + (i / max(1, len(word_texts))) * seg_dur for i in range(len(word_texts))]
                     word_ends = word_starts[1:] + [end]
 
-                for i in range(0, len(word_texts), wpl):
-                    chunk = word_texts[i:i + wpl]
+                for j in range(0, len(word_texts), wpl):
+                    chunk = word_texts[j:j + wpl]
                     line_text = " ".join(chunk).strip()
                     if not line_text:
                         continue
-                    chunk_start = word_starts[i]
-                    chunk_end = word_ends[min(i + wpl - 1, len(word_ends) - 1)]
+                    chunk_start = word_starts[j]
+                    chunk_end = word_ends[min(j + wpl - 1, len(word_ends) - 1)]
 
                     self.subtitles.append({
-                        "index": idx,
+                        "index": len(self.subtitles) + 1,
                         "start": timedelta(seconds=chunk_start),
                         "end": timedelta(seconds=chunk_end),
                         "text": line_text
                     })
                     self.display_lines.append(line_text)
-                    idx += 1
 
             self.progress_update(90)
+            logger.info("Transcription complete")
 
             preview_text = "\n\n".join(self.display_lines)
             self.caption_edit.setText(preview_text)
@@ -3585,15 +4944,25 @@ class NotyCaptionWindow(QMainWindow):
             self.progress_update(100)
 
             logger.info(f"Local generation saved: {out_path}")
-            QMessageBox.information(self, "Generation Complete", f"Captions generated and saved:\n{out_path}")
+            QMessageBox.information(self, tr('generation_complete'), f"{tr('generation_success')}\n{out_path}")
 
         except Exception as trans_err:
-            logger.error(f"Local transcription failed: {traceback.format_exc()}")
-            QMessageBox.critical(self, "Generation Error", f"Local processing failed:\n{str(trans_err)}")
+            if "canceled" in str(trans_err).lower():
+                logger.info("Transcription canceled by user")
+            else:
+                logger.error(f"Local transcription failed: {traceback.format_exc()}")
+                QMessageBox.critical(self, tr('generation_error'), f"{tr('processing_failed')}\n{str(trans_err)}")
         finally:
             self.is_generating = False
             self.freeze_ui(False)
             self.reset_progress_bars()
+            self.progress_whisper = None
+
+    def update_transcription_progress(self, progress, message):
+        """Update transcription progress"""
+        self.progress_update(progress)
+        self.prog_info.setText(message)
+        QApplication.processEvents()
 
     def save_subtitles_to_file(self, subtitles, fmt, out_path):
         """Save subtitles to file"""
@@ -3664,7 +5033,7 @@ class NotyCaptionWindow(QMainWindow):
             logger.info("Online subtitles loaded successfully")
         except Exception as load_err:
             logger.error(f"Online load failed: {traceback.format_exc()}")
-            QMessageBox.warning(self, "Load Error", f"Preview load failed:\n{str(load_err)}")
+            QMessageBox.warning(self, tr('load_error'), f"{tr('preview_failed')}\n{str(load_err)}")
 
     def toggle_edit_mode(self):
         """Toggle edit mode"""
@@ -3673,7 +5042,7 @@ class NotyCaptionWindow(QMainWindow):
             return
         self.edit_active = not self.edit_active
         self.caption_edit.setReadOnly(not self.edit_active)
-        self.edit_btn.setText("💾 Save & Exit Edit" if self.edit_active else "✏️ Edit Captions")
+        self.edit_btn.setText(tr('save_exit_edit') if self.edit_active else tr('edit_captions'))
         if self.edit_active:
             self.caption_edit.setFocus()
         else:
@@ -3686,7 +5055,7 @@ class NotyCaptionWindow(QMainWindow):
         edited_lines = [line.strip() for line in text_content.split('\n\n') if line.strip()]
 
         if len(edited_lines) != len(self.subtitles):
-            QMessageBox.warning(self, "Mismatch", "Line count changed. Discarding edits.")
+            QMessageBox.warning(self, tr('mismatch'), tr('line_count_changed'))
             self.refresh_caption_preview()
             logger.warning("Edit discarded due to line mismatch")
             return
@@ -3697,7 +5066,7 @@ class NotyCaptionWindow(QMainWindow):
 
         self.refresh_caption_preview()
         logger.info("Edits applied to subtitles")
-        QMessageBox.information(self, "Saved", "Edits applied successfully.")
+        QMessageBox.information(self, tr('saved'), tr('edits_applied'))
 
     def refresh_caption_preview(self):
         """Refresh caption preview"""
@@ -3712,8 +5081,8 @@ class NotyCaptionWindow(QMainWindow):
         if with_confirmation and self.settings.get("confirm_cancel", True):
             reply = QMessageBox.question(
                 self,
-                "Confirm Cancel",
-                "Are you sure you want to cancel the current operation?\n\nAny progress will be lost.",
+                tr('cancel_confirm'),
+                tr('cancel_confirm_msg'),
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
             )
@@ -3722,6 +5091,12 @@ class NotyCaptionWindow(QMainWindow):
         
         with self._cancel_lock:
             stopped = False
+
+            # Cancel transcription progress
+            if self.progress_whisper:
+                logger.info("Canceling transcription...")
+                self.progress_whisper.cancel()
+                stopped = True
 
             if hasattr(self, 'online_handler') and self.online_handler.poll_timer.isActive():
                 logger.info("Canceling online operation...")
@@ -3757,9 +5132,9 @@ class NotyCaptionWindow(QMainWindow):
                 stopped = True
 
             if stopped:
-                self.statusBar().showMessage("Operation canceled by user", 5000)
+                self.statusBar().showMessage(tr('canceled'), 5000)
             else:
-                self.statusBar().showMessage("Nothing to cancel", 3000)
+                self.statusBar().showMessage(tr('nothing_to_cancel'), 3000)
 
     def force_cancel_operation(self):
         """Force cancel operation"""
@@ -3767,12 +5142,8 @@ class NotyCaptionWindow(QMainWindow):
         
         reply = QMessageBox.warning(
             self,
-            "Force Cancel",
-            "⚠️ FORCE CANCEL ⚠️\n\n"
-            "This will immediately terminate the current operation.\n"
-            "This may cause corrupted files or unstable behavior.\n\n"
-            "Only use this if the operation is completely frozen.\n\n"
-            "Are you absolutely sure?",
+            tr('force_cancel'),
+            tr('force_cancel_confirm'),
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
@@ -3780,6 +5151,10 @@ class NotyCaptionWindow(QMainWindow):
             return
         
         with self._cancel_lock:
+            # Force cancel transcription
+            if self.progress_whisper:
+                self.progress_whisper.cancel()
+                
             if hasattr(self, 'online_handler'):
                 logger.info("Force canceling online operation...")
                 self.online_handler.force_cancel_operation()
@@ -3798,7 +5173,7 @@ class NotyCaptionWindow(QMainWindow):
             self.freeze_ui(False)
             self.reset_progress_bars()
             self.update_notebook_url_display(None)
-            self.statusBar().showMessage("Operation force canceled", 5000)
+            self.statusBar().showMessage(tr('force_canceled'), 5000)
 
     def _check_cancel_complete(self):
         """Check if cancel is complete"""
@@ -3823,7 +5198,7 @@ if __name__ == "__main__":
     instance = SingleInstance()
     if instance.is_already_running():
         logger.warning("Duplicate instance detected")
-        QMessageBox.warning(None, "Already Running", "NotyCaption is already open in another window.")
+        QMessageBox.warning(None, tr('already_running'), tr('already_running_msg'))
         sys.exit(1)
 
     app = QApplication(sys.argv)
