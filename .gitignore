@@ -1,10 +1,9 @@
 /build
 /dist
-/NotyCaption.spec
 /.venv
-/.notcapz
-/key.notcapz
-/settings.notcapz
+/*.notcapz
+/App.ico
+/logo.ico
 /whispers
 /pretrained_models
 /Installer.py
