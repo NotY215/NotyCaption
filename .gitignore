@@ -2,13 +2,8 @@
 /dist
 /.venv
 /*.notcapz
-/App.ico
-/logo.ico
 /whispers
 /pretrained_models
-/Installer.py
-/Uninstaller.py
-/Uninstaller.ico
 /Download.py
 /Download.spec
 /token.json
