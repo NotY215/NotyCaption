@@ -1,0 +1,116 @@
+# Core
+PyQt5==5.15.9
+PyQt5-sip==12.12.2
+PyQtWebEngine==5.15.6
+cryptography==41.0.7
+requests==2.31.0
+tqdm==4.66.1
+numpy==1.24.3
+psutil==5.9.8
+
+# AI/ML
+openai-whisper==20231117
+torch==2.1.2
+torchvision==0.16.2
+torchaudio==2.1.2
+tensorflow==2.15.0
+transformers==4.36.2
+sentence-transformers==2.2.2
+langdetect==1.0.9
+googletrans==4.0.0rc1
+nltk==3.8.1
+spacy==3.7.2
+textblob==0.17.1
+
+# Google
+google-auth==2.26.1
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.1.1
+google-api-python-client==2.108.0
+googleapis-common-protos==1.62.0
+oauthlib==3.2.2
+requests-oauthlib==1.3.1
+
+# Media Processing
+moviepy==1.0.3
+pysrt==1.1.2
+pysubs2==1.6.1
+spleeter==2.4.0
+librosa==0.10.1
+soundfile==0.12.1
+audioread==3.0.1
+pydub==0.25.1
+noisereduce==3.0.1
+pyloudnorm==0.1.1
+pyrubberband==0.3.0
+pedalboard==0.9.4
+resampy==0.4.2
+sox==1.4.1
+
+# Hardware Detection
+gputil==1.4.0
+pynvml==11.5.0
+pyamdgpuinfo==2.1.1
+pyadl==1.2.1
+pyopencl==2023.1
+vulkan==1.2.0
+dxgi==1.0.0
+wmi==1.5.1
+cpuinfo==9.0.0
+
+# Visualization
+matplotlib==3.8.2
+seaborn==0.13.0
+plotly==5.18.0
+pyqtgraph==0.13.3
+vispy==0.14.0
+vtk==9.3.0
+mayavi==4.8.1
+pyopengl==3.1.7
+
+# Windows (optional)
+pywin32==306
+comtypes==1.2.0
+
+# Data
+pandas==2.1.4
+polars==0.20.3
+pyarrow==14.0.1
+h5py==3.10.0
+zarr==2.16.1
+xarray==2023.12.0
+netCDF4==1.6.5
+blosc==1.11.1
+lz4==4.3.2
+python-snappy==0.6.1
+zstandard==0.22.0
+
+# Web
+aiohttp==3.9.1
+websockets==12.0
+socketio==0.2.1
+flask==3.0.0
+fastapi==0.108.0
+uvicorn==0.25.0
+beautifulsoup4==4.12.2
+selenium==4.16.0
+httpx==0.25.2
+
+# Security
+jwt==1.3.1
+python-jose==3.3.0
+passlib==1.7.4
+argon2-cffi==23.1.0
+bcrypt==4.1.0
+pyotp==2.9.0
+qrcode==7.4.2
+keyring==24.3.0
+
+# Database
+pymongo==4.6.1
+redis==5.0.1
+elasticsearch==8.11.1
+cassandra-driver==3.28.0
+influxdb==5.3.1
+clickhouse-driver==0.2.6
+duckdb==0.9.2

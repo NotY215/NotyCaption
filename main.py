@@ -20,7 +20,6 @@ This application provides professional caption generation with:
 - Advanced subtitle editing
 - Dark/Light themes with customizable accents
 """
-
 import sys
 import os
 import json
@@ -79,429 +78,753 @@ from multiprocessing import Pool, cpu_count, Manager
 from ctypes import wintypes
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-# PyQt5 imports
+# ========================================
+# PyQt5 Core Imports - FIXED
+# ========================================
+
+# QtCore - Basic Qt functionality
+from PyQt5.QtCore import (
+    Qt, QObject, QTimer, QThread, QUrl, QDir, QPoint, QPointF, QRect, QRectF,
+    QSize, QSizeF, QLine, QLineF, QByteArray, QDataStream, QIODevice, QBuffer,
+    QFile, QFileInfo, QFileSystemWatcher, QTime, QDate, QDateTime,
+    QElapsedTimer, QBasicTimer, QTimerEvent, QEvent, QCoreApplication,
+    QThreadPool, QRunnable, QMutex, QMutexLocker, QReadWriteLock, QReadLocker,
+    QWriteLocker, QSemaphore, QWaitCondition, QAtomicInt, QAtomicPointer,
+    QFuture, QFutureWatcher, QFutureSynchronizer, QtConcurrent,
+    QOperatingSystemVersion, QLibrary, QLibraryInfo, QPluginLoader,
+    QFactoryInterface, QMetaObject, QMetaEnum, QMetaClassInfo, QMetaProperty,
+    QMetaMethod, QVariant, QGenericArgument, QGenericReturnArgument, Q_ARG,
+    Q_RETURN_ARG, QT_VERSION, QT_VERSION_STR, PYQT_VERSION, PYQT_VERSION_STR,
+    qVersion, qFatal, qWarning, qDebug, qInstallMessageHandler,
+    qRegisterResourceData, qUnregisterResourceData, qCompress, qUncompress,
+    pyqtSignal, pyqtSlot, QPropertyAnimation, QEasingCurve, QProcess,
+    QSettings, QTranslator, QLocale, QParallelAnimationGroup, QPauseAnimation,
+    QAbstractAnimation, QAnimationGroup, QVariantAnimation
+)
+
+# QtGui - GUI components
+from PyQt5.QtGui import (
+    QIcon, QColor, QPixmap, QBrush, QLinearGradient, QRadialGradient,
+    QPainter, QPen, QFont, QFontDatabase, QFontMetrics, QFontMetricsF,
+    QPalette, QTextCursor, QTextCharFormat, QTextDocument, QTextBlock,
+    QTextLayout, QTextOption, QTextFormat, QTextList, QTextTable, QTextFrame,
+    QTextBlockFormat, QTextListFormat, QTextTableFormat, QTextFrameFormat,
+    QTextImageFormat, QSyntaxHighlighter, QAbstractTextDocumentLayout,
+    QPainterPath, QImage, QImageWriter, QKeySequence, QRegion, QTransform,
+    QMatrix, QPolygon, QPolygonF, QMatrix4x4, QVector2D, QVector3D, QVector4D,
+    QQuaternion, QOpenGLContext, QOpenGLPaintDevice, QWindow, QScreen,
+    QGuiApplication, QCursor, QClipboard, QDrag, QDragEnterEvent, QDragLeaveEvent,
+    QDragMoveEvent, QDropEvent, QFileOpenEvent, QInputMethod, QInputMethodEvent,
+    QKeyEvent, QMouseEvent, QMoveEvent, QPaintEvent, QResizeEvent, QShowEvent,
+    QHideEvent, QFocusEvent, QWheelEvent, QTabletEvent, QTouchEvent,
+    QNativeGestureEvent, QShortcutEvent, QHelpEvent, QStatusTipEvent,
+    QWhatsThisClickedEvent, QActionEvent, QContextMenuEvent, QCloseEvent,
+    QDesktopServices
+)
+
+# QtWidgets - Widgets (QGestureEvent is here in newer versions)
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QComboBox, QSpinBox, QPushButton, QTextEdit, QFileDialog,
-    QMessageBox, QLineEdit, QScrollArea, QSlider, QProgressBar, QDialog,
-    QGroupBox, QRadioButton, QStyleFactory, QTabWidget, QButtonGroup,
-    QFrame, QGraphicsOpacityEffect, QStackedWidget, QStatusBar, QSystemTrayIcon,
-    QMenu, QShortcut, QToolTip, QApplication, QSizePolicy, QSpacerItem,
-    QDesktopWidget, QColorDialog, QFontDialog, QListWidget, QListWidgetItem,
-    QSplitter, QSplitterHandle, QToolBar, QAction, QActionGroup, QDockWidget,
-    QMainWindow, QMdiArea, QMdiSubWindow, QDesktopWidget, QSplashScreen,
-    QProgressDialog, QInputDialog, QWizard, QWizardPage, QFormLayout,
+    QFormLayout, QBoxLayout, QLayout, QLayoutItem, QSpacerItem, QWidgetItem,
+    QLabel, QComboBox, QSpinBox, QDoubleSpinBox, QPushButton, QTextEdit,
+    QPlainTextEdit, QTextBrowser, QFileDialog, QMessageBox, QLineEdit,
+    QScrollArea, QSlider, QProgressBar, QDialog, QGroupBox, QRadioButton,
+    QStyleFactory, QTabWidget, QButtonGroup, QFrame, QGraphicsOpacityEffect,
+    QStackedWidget, QStatusBar, QSystemTrayIcon, QMenu, QShortcut, QToolTip,
+    QWhatsThis, QSizePolicy, QDesktopWidget, QColorDialog, QFontDialog,
+    QListWidget, QListWidgetItem, QSplitter, QSplitterHandle, QToolBar,
+    QAction, QActionGroup, QDockWidget, QMdiArea, QMdiSubWindow, QSplashScreen,
+    QProgressDialog, QInputDialog, QWizard, QWizardPage,
     QGraphicsView, QGraphicsScene, QGraphicsItem, QGraphicsRectItem,
     QGraphicsTextItem, QGraphicsDropShadowEffect, QGraphicsBlurEffect,
     QGraphicsOpacityEffect, QGraphicsColorizeEffect, QGraphicsScale,
     QGraphicsRotation, QGraphicsPixmapItem, QGraphicsProxyWidget,
     QStyleOption, QStylePainter, QCommonStyle, QProxyStyle, QStyle,
-    QWhatsThis, QUndoView, QUndoStack, QUndoCommand, QUndoGroup,
-    QToolButton, QCommandLinkButton, QDialogButtonBox, QButtonGroup,
-    QCheckBox, QAbstractButton, QAbstractSpinBox, QDateTimeEdit,
-    QDateEdit, QTimeEdit, QCalendarWidget, QLCDNumber, QDial, QRubberBand,
-    QDesktopServices, QShortcut, QKeySequenceEdit, QFontComboBox,
-    QDoubleSpinBox, QTextBrowser, QPlainTextEdit, QStackedLayout,
-    QFormLayout, QGridLayout, QBoxLayout, QLayout, QSizePolicy,
-    QSpacerItem, QWidgetItem, QLayoutItem, QBoxLayout, QHBoxLayout,
-    QVBoxLayout, QGridLayout, QFormLayout, QStackedLayout, QDockWidget,
-    QMainWindow, QMdiArea, QMdiSubWindow, QToolBar, QAction, QActionGroup,
-    QMenuBar, QMenu, QStatusBar, QToolTip, QWhatsThis, QSizeGrip,
-    QDesktopWidget, QSplashScreen, QProgressDialog, QInputDialog,
-    QWizard, QWizardPage, QWizard, QErrorMessage, QErrorMessage,
-    QMessageBox, QApplication, QStyleFactory
+    QUndoView, QUndoStack, QUndoCommand, QUndoGroup, QToolButton,
+    QCommandLinkButton, QDialogButtonBox, QCheckBox, QAbstractButton,
+    QAbstractSpinBox, QDateTimeEdit, QDateEdit, QTimeEdit, QCalendarWidget,
+    QLCDNumber, QDial, QRubberBand, QKeySequenceEdit, QFontComboBox,
+    QStackedLayout, QSizeGrip, QErrorMessage
 )
-from PyQt5.QtGui import (
-    QIcon, QColor, QTextCharFormat, QTextCursor, QFont, QPalette, QCloseEvent,
-    QPixmap, QBrush, QLinearGradient, QDesktopServices, QKeySequence, QPainter,
-    QPen, QRadialGradient, QFontDatabase, QPainterPath, QImage, QImageWriter,
-    QTextDocument, QAbstractTextDocumentLayout, QTextBlock, QTextLayout,
-    QTextOption, QTextFormat, QTextList, QTextTable, QTextFrame, QTextCursor,
-    QTextCharFormat, QTextBlockFormat, QTextListFormat, QTextTableFormat,
-    QTextFrameFormat, QTextImageFormat, QSyntaxHighlighter, QTextDocument,
-    QTextCursor, QTextCharFormat, QTextBlockFormat, QTextListFormat,
-    QTextTableFormat, QTextFrameFormat, QTextImageFormat, QSyntaxHighlighter,
-    QFontMetrics, QFontMetricsF, QRegion, QTransform, QMatrix, QPolygon,
-    QPolygonF, QLine, QLineF, QRect, QRectF, QPoint, QPointF, QSize, QSizeF,
-    QMatrix4x4, QVector2D, QVector3D, QVector4D, QQuaternion, QOpenGLContext,
-    QOpenGLFunctions, QOpenGLShader, QOpenGLShaderProgram, QOpenGLBuffer,
-    QOpenGLVertexArrayObject, QOpenGLTexture, QOpenGLFramebufferObject,
-    QOpenGLPaintDevice, QOpenGLWidget, QOpenGLWindow, QSurfaceFormat,
-    QWindow, QScreen, QGuiApplication, QCursor, QClipboard, QDrag,
-    QDragEnterEvent, QDragLeaveEvent, QDragMoveEvent, QDropEvent,
-    QFileOpenEvent, QInputMethod, QInputMethodEvent, QKeyEvent, QMouseEvent,
-    QMoveEvent, QPaintEvent, QResizeEvent, QShowEvent, QHideEvent,
-    QCloseEvent, QFocusEvent, QWheelEvent, QTabletEvent, QTouchEvent,
-    QGestureEvent, QNativeGestureEvent, QShortcutEvent, QHelpEvent,
-    QStatusTipEvent, QWhatsThisClickedEvent, QActionEvent, QContextMenuEvent
-)
-from PyQt5.QtCore import (
-    QTimer, Qt, QUrl, QDir, pyqtSignal, QThread, pyqtSlot, QPropertyAnimation,
-    QEasingCurve, QProcess, QSettings, QTranslator, QLocale, QPoint, QRect,
-    QSize, QParallelAnimationGroup, QPauseAnimation, QPointF, QRectF,
-    QByteArray, QDataStream, QIODevice, QBuffer, QFile, QFileInfo, QDir,
-    QFileSystemWatcher, QTime, QDate, QDateTime, QElapsedTimer, QBasicTimer,
-    QTimerEvent, QEvent, QCoreApplication, QObject, QThread, QRunnable,
-    QThreadPool, QMutex, QMutexLocker, QReadWriteLock, QReadLocker, QWriteLocker,
-    QSemaphore, QWaitCondition, QAtomicInt, QAtomicPointer, QFuture,
-    QFutureWatcher, QFutureSynchronizer, QtConcurrent, QOperatingSystemVersion,
-    QLibrary, QLibraryInfo, QPluginLoader, QFactoryInterface, QMetaObject,
-    QMetaEnum, QMetaClassInfo, QMetaProperty, QMetaMethod, QVariant,
-    QGenericArgument, QGenericReturnArgument, Q_ARG, Q_RETURN_ARG,
-    QT_VERSION, QT_VERSION_STR, PYQT_VERSION, PYQT_VERSION_STR,
-    qVersion, qFatal, qWarning, qDebug, qInstallMessageHandler,
-    qRegisterResourceData, qUnregisterResourceData, qCompress, qUncompress
-)
-from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent, QMediaMetaData, QMediaPlaylist
-from PyQt5.QtMultimediaWidgets import QVideoWidget, QGraphicsVideoItem
-from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
-from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage, QWebEngineSettings
-from PyQt5.QtWebChannel import QWebChannel
-from PyQt5.QtWebSockets import QWebSocket, QWebSocketServer
-from PyQt5.QtSvg import QSvgRenderer, QSvgWidget, QGraphicsSvgItem
-from PyQt5.QtPrintSupport import QPrinter, QPrintDialog, QPrintPreviewDialog, QPrinterInfo
-from PyQt5.QtTest import QTest
-from PyQt5.QtHelp import QHelpEngine, QHelpContentWidget, QHelpIndexWidget, QHelpSearchEngine
-from PyQt5.QtDesigner import QPyDesignerCustomWidgetPlugin, QPyDesignerTaskMenuExtension
-from PyQt5.QtUiTools import QUiLoader
-from PyQt5.QtXml import QDomDocument, QDomElement, QDomNode, QDomNodeList
-from PyQt5.QtXmlPatterns import QXmlQuery, QXmlResultItems, QXmlSerializer
-from PyQt5.QtSql import QSqlDatabase, QSqlQuery, QSqlQueryModel, QSqlTableModel, QSqlRelationalTableModel
-from PyQt5.QtBluetooth import QBluetoothDeviceDiscoveryAgent, QBluetoothDeviceInfo, QBluetoothSocket
-from PyQt5.QtNfc import QNearFieldManager, QNdefMessage, QNdefRecord, QNdefFilter
-from PyQt5.QtPositioning import QGeoCoordinate, QGeoPositionInfo, QGeoPositionInfoSource
-from PyQt5.QtSensors import QSensor, QSensorReading, QAccelerometer, QGyroscope, QMagnetometer
-from PyQt5.QtSerialPort import QSerialPort, QSerialPortInfo
-from PyQt5.QtLocation import QGeoServiceProvider, QGeoCodingManager, QGeoRoutingManager
-from PyQt5.QtTextToSpeech import QTextToSpeech
-from PyQt5.QtSpeech import QTextToSpeech as QTextToSpeech5
 
+# QtOpenGL - OpenGL support
+try:
+    from PyQt5.QtOpenGL import (
+        QOpenGLFunctions, QOpenGLShader, QOpenGLShaderProgram, QOpenGLBuffer,
+        QOpenGLVertexArrayObject, QOpenGLTexture, QOpenGLFramebufferObject,
+        QOpenGLWidget, QOpenGLWindow
+    )
+except ImportError:
+    # Fallback for older PyQt5 versions
+    QOpenGLWidget = QWidget
+    QOpenGLWindow = QWindow
+    pass
+
+# QtMultimedia - Media playback
+try:
+    from PyQt5.QtMultimedia import (
+        QMediaPlayer, QMediaContent, QMediaMetaData
+    )
+    from PyQt5.QtMultimediaWidgets import (
+        QVideoWidget
+    )
+except ImportError:
+    QMediaPlayer = None
+    QVideoWidget = None
+    pass
+
+# QtNetwork - Network functionality
+try:
+    from PyQt5.QtNetwork import (
+        QNetworkAccessManager, QNetworkRequest, QNetworkReply
+    )
+except ImportError:
+    pass
+
+# QtWebEngine - Web engine (optional)
+try:
+    from PyQt5.QtWebEngineWidgets import QWebEngineView
+    from PyQt5.QtWebChannel import QWebChannel
+    from PyQt5.QtWebSockets import QWebSocket
+except ImportError:
+    pass
+
+# QtSvg - SVG support
+try:
+    from PyQt5.QtSvg import QSvgWidget
+except ImportError:
+    pass
+
+# QtPrintSupport - Printing
+try:
+    from PyQt5.QtPrintSupport import QPrinter
+except ImportError:
+    pass
+
+# QtTest - Testing
+try:
+    from PyQt5.QtTest import QTest
+except ImportError:
+    pass
+
+# QtHelp - Help system (optional)
+try:
+    from PyQt5.QtHelp import QHelpEngine
+except ImportError:
+    pass
+
+# QtUiTools - UI loading (optional) - FIXED
+try:
+    from PyQt5.QtUiTools import QUiLoader
+except ImportError:
+    QUiLoader = None
+    pass
+
+# QtXml - XML handling
+try:
+    from PyQt5.QtXml import QDomDocument
+    from PyQt5.QtXmlPatterns import QXmlQuery
+except ImportError:
+    pass
+
+# QtSql - Database (optional)
+try:
+    from PyQt5.QtSql import QSqlDatabase
+except ImportError:
+    pass
+
+# QtBluetooth - Bluetooth (optional)
+try:
+    from PyQt5.QtBluetooth import QBluetoothSocket
+except ImportError:
+    pass
+
+# QtNfc - NFC (optional)
+try:
+    from PyQt5.QtNfc import QNearFieldManager
+except ImportError:
+    pass
+
+# QtPositioning - Positioning (optional)
+try:
+    from PyQt5.QtPositioning import QGeoCoordinate
+except ImportError:
+    pass
+
+# QtSensors - Sensors (optional)
+try:
+    from PyQt5.QtSensors import QSensor
+except ImportError:
+    pass
+
+# QtSerialPort - Serial port (optional)
+try:
+    from PyQt5.QtSerialPort import QSerialPort
+except ImportError:
+    pass
+
+# QtLocation - Location services (optional)
+try:
+    from PyQt5.QtLocation import QGeoServiceProvider
+except ImportError:
+    pass
+
+# QtTextToSpeech - Text to speech (optional)
+try:
+    from PyQt5.QtTextToSpeech import QTextToSpeech
+except ImportError:
+    QTextToSpeech = None
+    pass
+
+# ========================================
 # Media processing
-import moviepy.editor as mp
-from moviepy.video.io.VideoFileClip import VideoFileClip
-from moviepy.audio.io.AudioFileClip import AudioFileClip
-from moviepy.audio.AudioClip import AudioArrayClip
-from moviepy.video.VideoClip import VideoClip, ImageClip
-from moviepy.video.compositing.CompositeVideoClip import CompositeVideoClip
-from moviepy.video.compositing.concatenate import concatenate_videoclips
-from moviepy.audio.fx.all import audio_fadein, audio_fadeout
-from moviepy.video.fx.all import fadein, fadeout, resize, rotate, speedx
-import pysrt
-import pysubs2
-import whisper
-import whisper.utils
-import whisper.audio
-import whisper.tokenizer
-import whisper.decoding
-import whisper.model
+# ========================================
+try:
+    import moviepy.editor as mp
+    from moviepy.video.io.VideoFileClip import VideoFileClip
+    from moviepy.audio.io.AudioFileClip import AudioFileClip
+    MOVIEPY_AVAILABLE = True
+except ImportError:
+    MOVIEPY_AVAILABLE = False
+    pass
 
+try:
+    import pysrt
+    PYSRT_AVAILABLE = True
+except ImportError:
+    PYSRT_AVAILABLE = False
+    pass
+
+try:
+    import pysubs2
+    PYSUBS2_AVAILABLE = True
+except ImportError:
+    PYSUBS2_AVAILABLE = False
+    pass
+
+# Whisper - handle optional import
+try:
+    import whisper
+    WHISPER_AVAILABLE = True
+except ImportError:
+    WHISPER_AVAILABLE = False
+    whisper = None
+    pass
+
+# ========================================
 # Google APIs
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
-from googleapiclient.errors import HttpError
-import google.auth
-import google.oauth2
-import google_auth_oauthlib
-import googleapiclient
+# ========================================
+try:
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+    GOOGLE_API_AVAILABLE = True
+except ImportError:
+    GOOGLE_API_AVAILABLE = False
+    pass
 
-# Audio processing
-from spleeter.separator import Separator
-from spleeter.audio.adapter import AudioAdapter
-from spleeter.model import ModelManager
-from spleeter.utils.configuration import load_configuration
-import librosa
-import soundfile as sf
-import audioread
-import pydub
-from pydub import AudioSegment
-from pydub.effects import normalize, compress_dynamic_range
-import noisereduce as nr
-import pyloudnorm as pyln
-import pyrubberband as pyrb
-import pedalboard
-from pedalboard import Pedalboard, Compressor, Limiter, NoiseGate, Reverb, Gain
-import resampy
-import sox
+# ========================================
+# Audio processing - FIXED (added except clauses)
+# ========================================
+try:
+    from spleeter.separator import Separator
+    SPLEETER_AVAILABLE = True
+except ImportError:
+    SPLEETER_AVAILABLE = False
+    pass
+
+try:
+    import librosa
+    LIBROSA_AVAILABLE = True
+except ImportError:
+    LIBROSA_AVAILABLE = False
+    pass
+
+try:
+    import soundfile as sf
+    SOUNDFILE_AVAILABLE = True
+except ImportError:
+    SOUNDFILE_AVAILABLE = False
+    pass
+
+try:
+    import audioread
+    AUDIOREAD_AVAILABLE = True
+except ImportError:
+    AUDIOREAD_AVAILABLE = False
+    pass
+
+try:
+    import pydub
+    from pydub import AudioSegment
+    from pydub.effects import normalize
+    PYDUB_AVAILABLE = True
+except ImportError:
+    PYDUB_AVAILABLE = False
+    pass
+
+try:
+    import noisereduce as nr
+    NOISEREDUCE_AVAILABLE = True
+except ImportError:
+    NOISEREDUCE_AVAILABLE = False
+    pass
+
+try:
+    import pyloudnorm as pyln
+    PYLN_AVAILABLE = True
+except ImportError:
+    PYLN_AVAILABLE = False
+    pass
+
+try:
+    import pyrubberband as pyrb
+    PYRUBBERBAND_AVAILABLE = True
+except ImportError:
+    PYRUBBERBAND_AVAILABLE = False
+    pass
+
+try:
+    import pedalboard
+    PEDALBOARD_AVAILABLE = True
+except ImportError:
+    PEDALBOARD_AVAILABLE = False
+    pass
+
+try:
+    import resampy
+    RESAMPY_AVAILABLE = True
+except ImportError:
+    RESAMPY_AVAILABLE = False
+    pass
+
+try:
+    import sox
+    SOX_AVAILABLE = True
+except ImportError:
+    SOX_AVAILABLE = False
+    pass
+
 import wave
 import contextlib
 
-# Hardware detection and monitoring
-import GPUtil
-import psutil
-import cpuinfo
-import pynvml
-import pyamdgpuinfo
-import pyadl
-import OpenGL
-import OpenGL.GL as gl
-import OpenGL.GLUT as glut
-import OpenGL.GLU as glu
-import pyopencl as cl
-import pyopencl.array
-import vulkan as vk
-import dxgi
-import wmi
-import pythoncom
-import comtypes
-import comtypes.client
-import win32api
-import win32con
-import win32gui
-import win32process
-import win32security
-import win32service
-import win32serviceutil
-import win32event
-import win32file
-import win32pipe
-import win32print
-import win32ui
-import win32clipboard
-import win32cred
-import win32crypt
-import win32net
-import win32netcon
-import win32profile
-import win32ras
-import win32ts
-import win32verstamp
-import win32wnet
-import winerror
-import pywintypes
-import pythoncom
-from ctypes import wintypes, byref, Structure, c_uint, c_ulong, c_char, c_int, c_long, c_short, c_ushort, c_void_p, POINTER, WINFUNCTYPE
+# ========================================
+# Hardware detection and monitoring - FIXED
+# ========================================
+try:
+    import GPUtil
+    GPUTIL_AVAILABLE = True
+except ImportError:
+    GPUTIL_AVAILABLE = False
+    pass
 
-# Visualization and graphics
-import matplotlib
-matplotlib.use('Qt5Agg')
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.figure import Figure
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from matplotlib.patches import Rectangle, FancyBboxPatch, Circle, Polygon
-from matplotlib.lines import Line2D
-from matplotlib.collections import LineCollection, PolyCollection
-from matplotlib.colors import LinearSegmentedColormap, ColorConverter
-import numpy as np
-import pandas as pd
-import seaborn as sns
-import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
-import plotly.io as pio
-import pyqtgraph as pg
-import vispy
-import vispy.app
-import vispy.scene
-import vispy.scene.visuals
-from vispy import gloo
-import vtk
-from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
-import mayavi.mlab as mlab
-from mayavi import mlab
-import mayavi.tools as mtools
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    pass
 
-# Machine Learning and AI
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers, models, optimizers, losses, metrics
-from transformers import (
-    AutoTokenizer, AutoModel, AutoModelForCausalLM, AutoModelForSeq2SeqLM,
-    pipeline, set_seed, Trainer, TrainingArguments, DataCollator
-)
-import transformers
-from sentence_transformers import SentenceTransformer
-import langdetect
-from langdetect import detect, detect_langs
-import googletrans
-from googletrans import Translator as GoogleTranslator
-import nltk
-from nltk.tokenize import word_tokenize, sent_tokenize
-from nltk.corpus import stopwords
-from nltk.stem import WordNetLemmatizer, PorterStemmer
-import spacy
-import textblob
-from textblob import TextBlob
-import fasttext
-import fasttext.util
-import ctranslate2
-import onnxruntime as ort
-import onnx
-import openvino
-import openvino.inference_engine as ie
-import tritonclient
-import tensorrt as trt
-import pycuda.driver as cuda
-import pycuda.autoinit
-import cupy as cp
-import numba
-from numba import cuda as numba_cuda, jit, vectorize
-import dask
-import dask.array as da
-import dask.dataframe as dd
-import ray
-import modin
-import vaex
+try:
+    import cpuinfo
+    CPUINFO_AVAILABLE = True
+except ImportError:
+    CPUINFO_AVAILABLE = False
+    pass
 
-# Database and storage
-import sqlite3
-import pymongo
-from pymongo import MongoClient
-import redis
-from redis import Redis
-import elasticsearch
-from elasticsearch import Elasticsearch
-import cassandra
-from cassandra.cluster import Cluster
-import influxdb
-from influxdb import InfluxDBClient
-import timescaledb
-import clickhouse_driver
-from clickhouse_driver import Client as ClickHouseClient
-import duckdb
-import polars as pl
-import pyarrow as pa
-import pyarrow.parquet as pq
-import pyarrow.feather as feather
-import h5py
-import zarr
-import xarray as xr
-import netCDF4
-import blosc
-import lz4
-import snappy
-import zstandard as zstd
-import bz2
-import lzma
-import brotli
+try:
+    import pynvml
+    NVML_AVAILABLE = True
+except ImportError:
+    NVML_AVAILABLE = False
+    pass
 
-# Web and networking
-import aiohttp
-import asyncio
-import websockets
-import socketio
-import flask
-from flask import Flask, request, jsonify, render_template
-import fastapi
-from fastapi import FastAPI, HTTPException, WebSocket
-import uvicorn
-import gunicorn
-import nginx
-import apache
-import tornado
-import twisted
-import scrapy
-import beautifulsoup4 as bs4
-from bs4 import BeautifulSoup
-import selenium
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-import requests
-import urllib3
-import httpx
-import curl
-import pycurl
-import mechanize
-import robobrowser
-import mechanicalsoup
-import cloudscraper
-import cfscrape
-import twill
-import webbot
+try:
+    import pyamdgpuinfo
+    AMDGPU_AVAILABLE = True
+except ImportError:
+    AMDGPU_AVAILABLE = False
+    pass
 
-# Cryptography and security
-import jwt
-from jose import JWTError, jwt as jose_jwt
-import passlib
-from passlib.hash import bcrypt, argon2, scrypt
-import argon2
-from argon2 import PasswordHasher
-import bcrypt
-import scrypt
-import hashlib
-import hmac
-import secrets
-import pyotp
-import qrcode
-import keyring
-import keyczar
-from keyczar import keyczar
-import pyarmor
-import pytransform
-import obfuscator
-import pyminifier
-import uncompyle6
-import xdis
-import pycdc
-import unpy2exe
-import pyinstxtractor
-import pyi_archive_viewer
+try:
+    import pyadl
+    ADL_AVAILABLE = True
+except ImportError:
+    ADL_AVAILABLE = False
+    pass
 
-# System and OS
-import ctypes.wintypes
-import winreg
-import _winreg
-import msilib
-import msi
-import pywintypes
-import pythoncom
-import win32com
-import win32com.client
-import win32com.server
-import win32com.universal
-import win32com.storagecon
-import win32com.shell
-import win32com.shell.shell
-import win32com.shell.shellcon
-import win32com.propsys
-import win32com.propsys.pscon
-import win32com.bits
-import win32com.taskscheduler
-import win32com.adsi
-import win32com.axdebug
-import win32com.axcontrol
-import win32com.axscript
-import win32com.axscript.client
-import win32com.axscript.server
-import win32com.axscript.script
-import win32com.demos
-import win32com.html
-import win32com.iface
-import win32com.internet
-import win32com.mapi
-import win32com.mapi.mapitags
-import win32com.mapi.mapiutil
-import win32com.ole
-import win32com.oleacc
-import win32com.oledb
-import win32com.pythoncom
-import win32com.record
-import win32com.scripter
-import win32com.storagecon
-import win32com.sysmon
-import win32com.test
-import win32com.universal
-import win32com.util
-import win32com.webbrowser
-import win32com.windows
-import win32com.windowsx
-import win32com.win32com
-import win32com.win32com.client
-import win32com.win32com.server
+try:
+    import OpenGL
+    OPENGL_AVAILABLE = True
+except ImportError:
+    OPENGL_AVAILABLE = False
+    pass
+
+try:
+    import pyopencl as cl
+    OPENCL_AVAILABLE = True
+except ImportError:
+    OPENCL_AVAILABLE = False
+    pass
+
+try:
+    import vulkan as vk
+    VULKAN_AVAILABLE = True
+except ImportError:
+    VULKAN_AVAILABLE = False
+    pass
+
+try:
+    import dxgi
+    DXGI_AVAILABLE = True
+except ImportError:
+    DXGI_AVAILABLE = False
+    pass
+
+try:
+    import wmi
+    WMI_AVAILABLE = True
+except ImportError:
+    WMI_AVAILABLE = False
+    pass
+
+# Windows-specific imports with fallbacks
+if platform.system() == "Windows":
+    try:
+        import pythoncom
+        import comtypes
+        WIN32COM_AVAILABLE = True
+    except ImportError:
+        WIN32COM_AVAILABLE = False
+        pass
+
+    try:
+        import win32api
+        import win32con
+        import win32gui
+        WIN32_AVAILABLE = True
+    except ImportError:
+        WIN32_AVAILABLE = False
+        pass
+
+    try:
+        import winreg
+        WINREG_AVAILABLE = True
+    except ImportError:
+        WINREG_AVAILABLE = False
+        pass
 
 # ========================================
-# LOGGING SETUP (MUST BE FIRST)
+# Visualization and graphics - FIXED
+# ========================================
+try:
+    import matplotlib
+    matplotlib.use('Qt5Agg')
+    from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+    from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+    from matplotlib.figure import Figure
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+    pass
+
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+    pass
+
+try:
+    import seaborn as sns
+    SEABORN_AVAILABLE = True
+except ImportError:
+    SEABORN_AVAILABLE = False
+    pass
+
+try:
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    pass
+
+try:
+    import pyqtgraph as pg
+    PYQTGRAPH_AVAILABLE = True
+except ImportError:
+    PYQTGRAPH_AVAILABLE = False
+    pass
+
+try:
+    import vispy
+    VISPY_AVAILABLE = True
+except ImportError:
+    VISPY_AVAILABLE = False
+    pass
+
+try:
+    import vtk
+    VTK_AVAILABLE = True
+except ImportError:
+    VTK_AVAILABLE = False
+    pass
+
+try:
+    from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
+    QVTK_AVAILABLE = True
+except ImportError:
+    QVTK_AVAILABLE = False
+    pass
+
+try:
+    import mayavi.mlab as mlab
+    MAYAVI_AVAILABLE = True
+except ImportError:
+    MAYAVI_AVAILABLE = False
+    pass
+
+# ========================================
+# Machine Learning and AI - FIXED
+# ========================================
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    pass
+
+try:
+    import tensorflow as tf
+    TF_AVAILABLE = True
+except ImportError:
+    TF_AVAILABLE = False
+    pass
+
+try:
+    from transformers import AutoTokenizer
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+    pass
+
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+    pass
+
+try:
+    import langdetect
+    LANGDETECT_AVAILABLE = True
+except ImportError:
+    LANGDETECT_AVAILABLE = False
+    pass
+
+try:
+    import googletrans
+    GOOGLETRANS_AVAILABLE = True
+except ImportError:
+    GOOGLETRANS_AVAILABLE = False
+    pass
+
+try:
+    import nltk
+    NLTK_AVAILABLE = True
+except ImportError:
+    NLTK_AVAILABLE = False
+    pass
+
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+except ImportError:
+    SPACY_AVAILABLE = False
+    pass
+
+try:
+    import textblob
+    TEXTBLOB_AVAILABLE = True
+except ImportError:
+    TEXTBLOB_AVAILABLE = False
+    pass
+
+try:
+    import fasttext
+    FASTTEXT_AVAILABLE = True
+except ImportError:
+    FASTTEXT_AVAILABLE = False
+    pass
+
+try:
+    import ctranslate2
+    CTRANSLATE2_AVAILABLE = True
+except ImportError:
+    CTRANSLATE2_AVAILABLE = False
+    pass
+
+# ========================================
+# Database and storage
+# ========================================
+try:
+    import sqlite3
+    SQLITE_AVAILABLE = True
+except ImportError:
+    SQLITE_AVAILABLE = False
+    pass
+
+try:
+    import pymongo
+    MONGODB_AVAILABLE = True
+except ImportError:
+    MONGODB_AVAILABLE = False
+    pass
+
+try:
+    import redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    pass
+
+try:
+    import elasticsearch
+    ELASTICSEARCH_AVAILABLE = True
+except ImportError:
+    ELASTICSEARCH_AVAILABLE = False
+    pass
+
+try:
+    import cassandra
+    CASSANDRA_AVAILABLE = True
+except ImportError:
+    CASSANDRA_AVAILABLE = False
+    pass
+
+try:
+    import influxdb
+    INFLUXDB_AVAILABLE = True
+except ImportError:
+    INFLUXDB_AVAILABLE = False
+    pass
+
+try:
+    import duckdb
+    DUCKDB_AVAILABLE = True
+except ImportError:
+    DUCKDB_AVAILABLE = False
+    pass
+
+try:
+    import polars as pl
+    POLARS_AVAILABLE = True
+except ImportError:
+    POLARS_AVAILABLE = False
+    pass
+
+# ========================================
+# Web and networking
+# ========================================
+try:
+    import aiohttp
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
+    pass
+
+try:
+    import flask
+    FLASK_AVAILABLE = True
+except ImportError:
+    FLASK_AVAILABLE = False
+    pass
+
+try:
+    import fastapi
+    FASTAPI_AVAILABLE = True
+except ImportError:
+    FASTAPI_AVAILABLE = False
+    pass
+
+try:
+    from bs4 import BeautifulSoup
+    BEAUTIFULSOUP_AVAILABLE = True
+except ImportError:
+    BEAUTIFULSOUP_AVAILABLE = False
+    pass
+
+try:
+    import selenium
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
+    pass
+
+try:
+    import httpx
+    HTTPX_AVAILABLE = True
+except ImportError:
+    HTTPX_AVAILABLE = False
+    pass
+
+# ========================================
+# Cryptography and security
+# ========================================
+try:
+    import jwt
+    JWT_AVAILABLE = True
+except ImportError:
+    JWT_AVAILABLE = False
+    pass
+
+try:
+    import bcrypt
+    BCRYPT_AVAILABLE = True
+except ImportError:
+    BCRYPT_AVAILABLE = False
+    pass
+
+try:
+    import pyotp
+    PYOTP_AVAILABLE = True
+except ImportError:
+    PYOTP_AVAILABLE = False
+    pass
+
+try:
+    import qrcode
+    QRCODE_AVAILABLE = True
+except ImportError:
+    QRCODE_AVAILABLE = False
+    pass
+
+try:
+    import keyring
+    KEYRING_AVAILABLE = True
+except ImportError:
+    KEYRING_AVAILABLE = False
+    pass
+
+# ========================================
+# Global constants and configuration
+# ========================================
+
+# Application constants
+APP_NAME = "NotyCaption"
+APP_AUTHOR = "NotY215"
+APP_VERSION = "2026.5.0"
+APP_BUILD = datetime.now().strftime("%Y%m%d")
+APP_COPYRIGHT = f"Copyright © 2026 {APP_AUTHOR}. All rights reserved."
+# Google API scopes
+SCOPES = ['https://www.googleapis.com/auth/drive']
+
+# ========================================
+# Logging setup
 # ========================================
 def setup_logging():
     """Initialize logging with rotation and compression"""
@@ -515,92 +838,29 @@ def setup_logging():
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.%f")[:-3]
     log_file = os.path.join(log_dir, f"NotyCaption_{timestamp}.log")
-    
-    # Create rotating file handler with compression
-    class CompressedRotatingFileHandler(logging.Handler):
-        def __init__(self, filename, max_bytes=10485760, backup_count=5):
-            super().__init__()
-            self.filename = filename
-            self.max_bytes = max_bytes
-            self.backup_count = backup_count
-            self.stream = None
-            self._open()
-            
-        def _open(self):
-            if self.stream:
-                self.stream.close()
-            self.stream = open(self.filename, 'a', encoding='utf-8')
-            
-        def _rotate(self):
-            if self.stream:
-                self.stream.close()
-                
-            if os.path.exists(self.filename):
-                if os.path.getsize(self.filename) > self.max_bytes:
-                    # Rotate existing files
-                    for i in range(self.backup_count - 1, 0, -1):
-                        src = f"{self.filename}.{i}.gz"
-                        dst = f"{self.filename}.{i+1}.gz"
-                        if os.path.exists(src):
-                            os.rename(src, dst)
-                    
-                    # Compress current log
-                    with open(self.filename, 'rb') as f_in:
-                        with gzip.open(f"{self.filename}.1.gz", 'wb') as f_out:
-                            f_out.write(f_in.read())
-                    
-                    # Truncate current log
-                    open(self.filename, 'w').close()
-                    
-            self._open()
-            
-        def emit(self, record):
-            try:
-                msg = self.format(record)
-                self.stream.write(msg + '\n')
-                self.stream.flush()
-                self._rotate()
-            except Exception:
-                self.handleError(record)
-                
-    handler = CompressedRotatingFileHandler(log_file)
-    handler.setFormatter(logging.Formatter(
-        '%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(message)s'
-    ))
-    
+
     logging.basicConfig(
         level=logging.INFO,
+        format='%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(message)s',
         handlers=[
-            handler,
+            logging.FileHandler(log_file, encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
         ],
         force=True
     )
-    
     logger = logging.getLogger("NotyCaption")
     logger.info("=" * 80)
-    logger.info("NotyCaption Pro Secure Launch 2026")
+    logger.info(f"NotyCaption Pro Launch - Version {APP_VERSION}")
     logger.info("=" * 80)
     logger.info(f"Python version: {sys.version}")
     logger.info(f"Platform: {platform.platform()}")
-    logger.info(f"Processor: {platform.processor()}")
     logger.info(f"Working directory: {os.getcwd()}")
     logger.info(f"Log file: {log_file}")
-    logger.info(f"Executable: {sys.executable if getattr(sys, 'frozen', False) else 'development mode'}")
-    
     return logger
 
-# Initialize logger immediately
+# Initialize logger
 logger = setup_logging()
 
-# ========================================
-# CONFIGURATION AND CONSTANTS
-# ========================================
-APP_NAME = "NotyCaption Pro"
-APP_AUTHOR = "NotY215"
-APP_VERSION = "2026.3.0"
-APP_BUILD = datetime.now().strftime("%Y%m%d")
-APP_COPYRIGHT = f"Copyright © 2026 {APP_AUTHOR}. All rights reserved."
 
 # Get app data directory for settings
 if getattr(sys, 'frozen', False):
