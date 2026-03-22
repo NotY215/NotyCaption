@@ -2,6 +2,9 @@ package com.noty215.notycaption.models;
 
 import java.util.List;
 
+/**
+ * CPU Information Data Class
+ */
 public class CPUInfo {
     private String name;
     private String vendor;
@@ -36,8 +39,38 @@ public class CPUInfo {
     private String cpuid;
     private String serial;
 
+    // Constructors
     public CPUInfo() {}
 
+    public CPUInfo(String name, String vendor, String architecture, int coresPhysical, int coresLogical,
+                   int threads, double baseFrequency, double maxFrequency, double currentFrequency,
+                   double temperature, double utilization, double powerUsage, long cacheL1, long cacheL2,
+                   long cacheL3, List<String> instructionSets, boolean virtualization, boolean hypervisor,
+                   boolean smtEnabled, boolean turboEnabled, boolean overclocked) {
+        this.name = name;
+        this.vendor = vendor;
+        this.architecture = architecture;
+        this.coresPhysical = coresPhysical;
+        this.coresLogical = coresLogical;
+        this.threads = threads;
+        this.baseFrequency = baseFrequency;
+        this.maxFrequency = maxFrequency;
+        this.currentFrequency = currentFrequency;
+        this.temperature = temperature;
+        this.utilization = utilization;
+        this.powerUsage = powerUsage;
+        this.cacheL1 = cacheL1;
+        this.cacheL2 = cacheL2;
+        this.cacheL3 = cacheL3;
+        this.instructionSets = instructionSets;
+        this.virtualization = virtualization;
+        this.hypervisor = hypervisor;
+        this.smtEnabled = smtEnabled;
+        this.turboEnabled = turboEnabled;
+        this.overclocked = overclocked;
+    }
+
+    // Getters and Setters
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
 
@@ -133,4 +166,10 @@ public class CPUInfo {
 
     public String getSerial() { return serial; }
     public void setSerial(String serial) { this.serial = serial; }
+
+    @Override
+    public String toString() {
+        return String.format("CPU: %s (%d cores) - Usage: %.1f%% - Temp: %.0f°C",
+                name, coresPhysical, utilization, temperature);
+    }
 }
