@@ -13,7 +13,7 @@
   <a href="https://github.com/NotY215/NotyCaption/releases">
     <img src="https://img.shields.io/github/downloads/NotY215/NotyCaption/total?color=4285f4&style=for-the-badge&logo=google-drive&logoColor=white" alt="Downloads">
   </a>
-  <img src="https://img.shields.io/badge/Python-3.9+-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python Version">
+  <img src="https://img.shields.io/badge/Java-21+-orange?style=for-the-badge&logo=openjdk&logoColor=white" alt="Java Version">
   <img src="https://img.shields.io/badge/License-GNU%20GPLv3-red?style=for-the-badge" alt="License">
 </p>
 
@@ -27,22 +27,20 @@
 
 ## ✨ Features
 
-- **AI Subtitle Generation** powered by OpenAI Whisper (local + online Colab mode)
-- **Large-v1 model support** – highest accuracy (~2.9 GB download)
-- **Words-per-line control** (1–20 words) with model validation
-- **SRT** (standard) and **ASS** (advanced styling) export
-- **Vocal-only enhancement** using Spleeter (remove background music/noise)
-- **Media playback** with real-time subtitle highlighting
-- **Editable captions** directly in the app
-- **Google Drive / Colab integration** for GPU-accelerated processing
-- **Dark & Light themes**, UI scaling, secure encrypted settings
-- **Single-instance lock** – prevents multiple app launches
-- **Model integrity check** + automatic corrupt file cleanup
-- **Cancellation-safe model download** with progress bar
-
+* **AI Subtitle Generation** powered by OpenAI Whisper (local + online Colab mode)
+* **Large-v1 model support** – highest accuracy (~2.9 GB download)
+* **Words-per-line control** (1–20 words) with model validation
+* **SRT** (standard) and **ASS** (advanced styling) export
+* **Vocal-only enhancement** using Spleeter (remove background music/noise)
+* **Media playback** with real-time subtitle highlighting
+* **Editable captions** directly in the app
+* **Google Drive / Colab integration** for GPU-accelerated processing
+* **Dark & Light themes**, UI scaling, secure encrypted settings
+* **Single-instance lock** – prevents multiple app launches
+* **Model integrity check** + automatic corrupt file cleanup
+* **Cancellation-safe model download** with progress bar
 
 ---
-
 
 ## 🚀 Quick Start – Windows Installer (Recommended)
 
@@ -53,82 +51,128 @@
 5. Import video/audio → Generate captions → Export SRT/ASS
 
 **Direct download link (latest stable):**
-https://github.com/NotY215/NotyCaption/releases/latest/download
+[https://github.com/NotY215/NotyCaption/releases/latest/download](https://github.com/NotY215/NotyCaption/releases/latest/download)
 
 ---
 
-## 🛠️ Manual Installation (Developer / Advanced Users)
+## ☕ Tech Stack (Updated)
+
+* **Java 21 (Core Application)**
+* **JavaFX / Swing (UI Layer)**
+* **Whisper AI (via API / local integration)**
+* **FFmpeg (media processing)**
+* **Spleeter (audio separation)**
+* **Google Drive API + Colab integration**
+
+---
+
+## 🛠️ Manual Setup (Developers / Advanced Users)
 
 ### Requirements
 
-- Python 3.9+
-- Windows 10/11 (64-bit)
+* Java 21+
+* Windows 10/11 (64-bit)
+* FFmpeg installed and added to PATH
 
-### Dependencies
+### Setup
 
 ```bash
-pip install --upgrade pip
-pip install pyqt5 moviepy whisper-openai pysrt pysubs2 spleeter tqdm cryptography google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client requests
-
+git clone https://github.com/NotY215/NotyCaption.git
+cd NotyCaption
 ```
-### You may also need ffmpeg in PATH:
 
-* Download from: https://www.gyan.dev/ffmpeg/builds/
-* Extract and add bin folder to system PATH
+### Run Application
+
+```bash
+./gradlew run
+```
+
+*or (if using Maven)*
+
+```bash
+mvn clean install
+mvn javafx:run
+```
 
 ---
 
-### Run from source
-* git clone https://github.com/NotY215/NotyCaption.git
-* cd NotyCaption
-* python NotyCaption.py
+## 🎬 FFmpeg Setup
 
-# 📥 Download & Releases
+* Download from: [https://www.gyan.dev/ffmpeg/builds/](https://www.gyan.dev/ffmpeg/builds/)
+* Extract and add the `bin` folder to system PATH
+
+---
+
+## 📥 Download & Releases
+
 * All pre-built binaries and model files are available here:
-* → https://github.com/NotY215/NotyCaption/releases
+* → [https://github.com/NotY215/NotyCaption/releases](https://github.com/NotY215/NotyCaption/releases)
 * Recommended version: Latest Stable
 * File: NotyCaption.exe
 
+---
+
 ## 🔒 Security Notes
 
-* All settings are encrypted using Fernet (AES-128 in CBC mode + HMAC)
-* Google client secrets are encrypted in EXE builds (client.notycapz)
+* All settings are encrypted using modern AES-based encryption
+* Google client secrets are securely bundled in EXE builds
 * No telemetry or external tracking
 * Model files are validated for size & integrity before use
 
+---
 
 ## 🛠️ Building from Source (for Developers)
 
-* Install PyInstaller:Bashpip install pyinstaller cryptography
-* Place your client.json (Google API credentials) in the project root
-* Run the build script:Bashpython build.py
-* Output will appear in a release_YYYYMMDD_HHMMSS folder
+### Requirements
 
+* Java 21
+* Gradle or Maven
 
-# ⚡ Performance Tips
+### Build
+
+```bash
+./gradlew build
+```
+
+*or*
+
+```bash
+mvn clean package
+```
+
+* Output will be generated in the `build/` or `target/` directory
+
+---
+
+## ⚡ Performance Tips
 
 * Use large-v1 model for best accuracy (requires ~3 GB RAM + disk)
 * Enable GPU in online Colab mode for 5–10× faster transcription
 * Use vocal enhancement for videos with background music
 * Set 1 word per line + large model for karaoke-style subtitles
 
+---
 
-# 📜 License
+## 📜 License
+
 * GNU General Public License v3.0
-* See LICENSE file for full details.
+* See LICENSE file for full details
 * Copyright © 2026 NotY215
+
+---
 
 ## 🙏 Acknowledgments
 
 * OpenAI Whisper
 * Spleeter
-* PyQt5
-* MoviePy
-* pysrt & pysubs2 – subtitle handling
+* FFmpeg
+* JavaFX / Swing
 * Google Colab & Google Drive API
 
+---
+
 # Made with ❤️ in India
+
 * Star ⭐ the repo if you find it useful!
-* ## [Download Latest Installer ](https://github.com/NotY215/NotyCaption/releases/latest)
 
-
+## [Download Latest Installer ](https://github.com/NotY215/NotyCaption/releases/latest)

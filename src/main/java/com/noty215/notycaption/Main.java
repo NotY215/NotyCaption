@@ -12,160 +12,171 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * NotyCaption Pro - Professional AI Caption Generator
+ * Main entry point for NotyCaption Pro
  * Version: 2026.5.0
- * Author: NotY215
  */
 public class Main extends Application {
 
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
-    private static NotyCaptionWindow window;
-    private static SingleInstance instance;
+    private static final String APP_NAME = "NotyCaption Pro";
+    private static final String APP_VERSION = "2026.5.0";
+    private static final String APP_AUTHOR = "NotY215";
 
-    public static void main(String[] args) {
-        // Check for single instance
-        instance = new SingleInstance();
-        if (instance.isAlreadyRunning()) {
-            logger.warn("Duplicate instance detected");
-            System.err.println("NotyCaption is already open in another window.");
-            System.exit(1);
-            return;
-        }
+    private static Stage primaryStage;
+    private static NotyCaptionWindow mainWindow;
 
-        // Setup logging
+    @Override
+    public void init() throws Exception {
+        super.init();
+
+        // Setup logging directory
         setupLogging();
 
-        // Launch JavaFX application
-        launch(args);
-    }
-
-    private static void setupLogging() {
-        try {
-            String baseDir = System.getProperty("user.dir");
-            File logDir = new File(baseDir, "logs");
-            if (!logDir.exists()) {
-                logDir.mkdirs();
-            }
-
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss.SSS"));
-            File logFile = new File(logDir, "NotyCaption_" + timestamp + ".log");
-
-            System.setProperty("org.slf4j.simpleLogger.logFile", logFile.getAbsolutePath());
-            System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "info");
-
-            logger.info("=" .repeat(80));
-            logger.info("NotyCaption Pro Launch - Version 2026.5.0");
-            logger.info("=" .repeat(80));
-            logger.info("Java version: " + System.getProperty("java.version"));
-            logger.info("Platform: " + System.getProperty("os.name") + " " + System.getProperty("os.arch"));
-            logger.info("Working directory: " + System.getProperty("user.dir"));
-            logger.info("Log file: " + logFile.getAbsolutePath());
-        } catch (Exception e) {
-            System.err.println("Failed to setup logging: " + e.getMessage());
-        }
+        logger.info("=" .repeat(80));
+        logger.info("NotyCaption Pro Launch - Version {}", APP_VERSION);
+        logger.info("=" .repeat(80));
+        logger.info("Java version: {}", System.getProperty("java.version"));
+        logger.info("Platform: {} {}", System.getProperty("os.name"), System.getProperty("os.arch"));
+        logger.info("Working directory: {}", System.getProperty("user.dir"));
     }
 
     @Override
-    public void start(Stage primaryStage) {
+    public void start(Stage stage) {
+        primaryStage = stage;
+
+        // Check for single instance
+        if (SingleInstance.isAlreadyRunning()) {
+            logger.warn("Another instance is already running");
+            Platform.exit();
+            return;
+        }
+
         // Create splash screen
         SplashScreen splash = new SplashScreen();
         splash.show();
 
-        // Initialize application in background
+        // Initialize main window in background
         new Thread(() -> {
             try {
-                // Load settings
-                window = new NotyCaptionWindow();
+                Thread.sleep(1000);
 
                 Platform.runLater(() -> {
-                    splash.close();
-                    window.show(primaryStage);
+                    try {
+                        mainWindow = new NotyCaptionWindow();
+                        mainWindow.show();
+                        splash.hide();
+
+                        primaryStage = mainWindow.getStage();
+                        primaryStage.setOnCloseRequest(event -> {
+                            mainWindow.close();
+                            SingleInstance.release();
+                        });
+
+                        logger.info("Main window initialized");
+                    } catch (Exception e) {
+                        logger.error("Failed to initialize main window", e);
+                        splash.hide();
+                        Platform.exit();
+                    }
                 });
-            } catch (Exception e) {
-                logger.error("Failed to initialize application", e);
-                Platform.runLater(() -> {
-                    splash.close();
-                    javafx.scene.control.Alert alert = new javafx.scene.control.Alert(
-                            javafx.scene.control.Alert.AlertType.ERROR,
-                            "Failed to initialize application: " + e.getMessage()
-                    );
-                    alert.showAndWait();
-                    Platform.exit();
-                });
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                splash.hide();
             }
         }).start();
     }
 
     @Override
-    public void stop() {
-        if (window != null) {
-            window.close();
+    public void stop() throws Exception {
+        logger.info("Application shutting down");
+        if (mainWindow != null) {
+            mainWindow.cleanupBeforeExit();
         }
-        instance.release();
+        SingleInstance.release();
         logger.info("=" .repeat(80));
         logger.info("NotyCaption Pro Secure Shutdown");
         logger.info("=" .repeat(80));
+        super.stop();
     }
 
+    private void setupLogging() throws IOException {
+        String baseDir = System.getProperty("user.dir");
+        String logDir = baseDir + File.separator + "logs";
+        Files.createDirectories(Paths.get(logDir));
+
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss.SSS"));
+        String logFile = logDir + File.separator + "NotyCaption_" + timestamp + ".log";
+
+        System.setProperty("org.slf4j.simpleLogger.logFile", logFile);
+        System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "info");
+        System.setProperty("org.slf4j.simpleLogger.showDateTime", "true");
+        System.setProperty("org.slf4j.simpleLogger.dateTimeFormat", "yyyy-MM-dd HH:mm:ss.SSS");
+    }
+
+    public static Stage getPrimaryStage() {
+        return primaryStage;
+    }
+
+    public static NotyCaptionWindow getMainWindow() {
+        return mainWindow;
+    }
+
+    public static void main(String[] args) {
+        launch(args);
+    }
+
+    /**
+     * Simple splash screen implementation
+     */
     private static class SplashScreen {
-        private javafx.stage.Stage stage;
+        private Stage splashStage;
 
         public void show() {
-            stage = new javafx.stage.Stage();
-            stage.initStyle(StageStyle.TRANSPARENT);
+            splashStage = new Stage(StageStyle.TRANSPARENT);
+            splashStage.initStyle(StageStyle.TRANSPARENT);
 
-            javafx.scene.layout.VBox root = new javafx.scene.layout.VBox();
-            root.setStyle("-fx-background-color: #1a1a2e; -fx-border-radius: 15; -fx-background-radius: 15;");
-            root.setAlignment(javafx.geometry.Pos.CENTER);
-            root.setPrefSize(600, 400);
-
-            javafx.scene.text.Text title = new javafx.scene.text.Text("NotyCaption Pro");
-            title.setStyle("-fx-font-size: 36px; -fx-font-weight: bold; -fx-fill: #89b4fa;");
-            root.getChildren().add(title);
-
-            javafx.scene.text.Text subtitle = new javafx.scene.text.Text("Professional AI Caption Generator");
-            subtitle.setStyle("-fx-font-size: 14px; -fx-fill: #e0e0ff;");
-            root.getChildren().add(subtitle);
-
-            javafx.scene.control.ProgressBar progress = new javafx.scene.control.ProgressBar();
-            progress.setPrefWidth(400);
-            progress.setStyle("-fx-accent: #89b4fa;");
-            javafx.scene.layout.VBox.setMargin(progress, new javafx.geometry.Insets(30, 0, 0, 0));
-            root.getChildren().add(progress);
-
-            javafx.scene.text.Text status = new javafx.scene.text.Text("Initializing...");
-            status.setStyle("-fx-font-size: 12px; -fx-fill: #a6e3a1;");
-            javafx.scene.layout.VBox.setMargin(status, new javafx.geometry.Insets(15, 0, 0, 0));
-            root.getChildren().add(status);
-
-            javafx.scene.Scene scene = new javafx.scene.Scene(root);
+            javafx.scene.Scene scene = new javafx.scene.Scene(createSplashContent());
             scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
-            stage.setScene(scene);
-            stage.centerOnScreen();
-            stage.show();
 
-            // Animate progress
-            new Thread(() -> {
-                for (int i = 0; i <= 100; i++) {
-                    final int value = i;
-                    Platform.runLater(() -> progress.setProgress(value / 100.0));
-                    try {
-                        Thread.sleep(20);
-                    } catch (InterruptedException e) {
-                        break;
-                    }
-                }
-                Platform.runLater(() -> status.setText("Ready"));
-            }).start();
+            splashStage.setScene(scene);
+            splashStage.centerOnScreen();
+            splashStage.show();
         }
 
-        public void close() {
-            if (stage != null) {
-                stage.close();
+        private javafx.scene.Parent createSplashContent() {
+            javafx.scene.layout.VBox vbox = new javafx.scene.layout.VBox();
+            vbox.setAlignment(javafx.geometry.Pos.CENTER);
+            vbox.setStyle("-fx-background-color: #1a1a2e; -fx-background-radius: 20;");
+            vbox.setPrefSize(600, 400);
+
+            javafx.scene.control.Label title = new javafx.scene.control.Label(APP_NAME);
+            title.setStyle("-fx-text-fill: #89b4fa; -fx-font-size: 36px; -fx-font-weight: bold;");
+
+            javafx.scene.control.Label subtitle = new javafx.scene.control.Label("AI-Powered Caption Generator");
+            subtitle.setStyle("-fx-text-fill: #cdd6f5; -fx-font-size: 18px;");
+
+            javafx.scene.control.Label version = new javafx.scene.control.Label("Version " + APP_VERSION);
+            version.setStyle("-fx-text-fill: #a6e3a1; -fx-font-size: 14px;");
+
+            javafx.scene.control.ProgressIndicator progress = new javafx.scene.control.ProgressIndicator();
+            progress.setStyle("-fx-progress-color: #89b4fa;");
+
+            vbox.getChildren().addAll(title, subtitle, version, progress);
+            vbox.setSpacing(20);
+
+            return vbox;
+        }
+
+        public void hide() {
+            if (splashStage != null) {
+                splashStage.hide();
             }
         }
     }

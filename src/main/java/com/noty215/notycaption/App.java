@@ -1,47 +1,44 @@
 package com.noty215.notycaption;
 
-import com.noty215.notycaption.ui.NotyCaptionWindow;
 import com.noty215.notycaption.utils.SettingsManager;
 import com.noty215.notycaption.utils.Translator;
 import javafx.application.Application;
 import javafx.stage.Stage;
 
 /**
- * Main Application Class
+ * Application entry point with configuration
  */
 public class App extends Application {
 
-    private static NotyCaptionWindow mainWindow;
-    private static SettingsManager settings;
-    private static Translator translator;
+    private static App instance;
+    private SettingsManager settings;
+    private Translator translator;
 
     @Override
     public void start(Stage primaryStage) {
-        settings = SettingsManager.getInstance();
-        translator = Translator.getInstance(settings.getLanguage());
+        instance = this;
 
-        mainWindow = new NotyCaptionWindow();
-        mainWindow.show(primaryStage);
+        // Initialize settings
+        settings = new SettingsManager();
+        settings.load();
+
+        // Initialize translator
+        translator = new Translator(settings.getLanguage());
+
+        // Launch main window
+        Main.main(new String[0]);
     }
 
-    public static NotyCaptionWindow getMainWindow() {
-        return mainWindow;
+    public static App getInstance() {
+        return instance;
     }
 
-    public static SettingsManager getSettings() {
+    public SettingsManager getSettings() {
         return settings;
     }
 
-    public static Translator getTranslator() {
+    public Translator getTranslator() {
         return translator;
-    }
-
-    @Override
-    public void stop() {
-        if (mainWindow != null) {
-            mainWindow.saveState();
-        }
-        settings.save();
     }
 
     public static void main(String[] args) {

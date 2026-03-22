@@ -1,4 +1,4 @@
-package com.noty215/notycaption/ai;
+package com.noty215.notycaption.ai;
 
 public class WhisperModel {
 
