@@ -9,6 +9,15 @@ Author: NotY215
 Comprehensive Import Section (600+ lines)
 """
 
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+NotyCaption Pro - Professional AI Caption Generator
+Version: 2026.5.0
+Author: NotY215
+"""
+
 # ========================================
 # Standard Library Imports - Core
 # ========================================
@@ -48,358 +57,97 @@ import contextlib
 import argparse
 import configparser
 import csv
-import xml.etree.ElementTree as ET
 import html
 import urllib.request
 import urllib.parse
 import urllib.error
-import http.client
-import ftplib
-import smtplib
-import imaplib
-import poplib
-import mailbox
-import email
-import email.mime
-import email.mime.text
-import email.mime.multipart
-import email.mime.base
-import email.encoders
 import mimetypes
-import netrc
-import getpass
-import pwd
-import grp
-import stat
 import glob
 import fnmatch
-import linecache
-import filecmp
-import difflib
 import textwrap
 import pprint
-import reprlib
 import array
 import struct
 import io
-import StringIO
-import cStringIO
 import codecs
-import encodings
 import unicodedata
-import stringprep
-import readline
-import rlcompleter
 import inspect
 import ast
-import dis
-import opcode
-import imp
 import importlib
 import importlib.util
-import importlib.machinery
 import zipfile
 import tarfile
 import gzip
 import bz2
 import lzma
-import zipimport
 import pkgutil
-import pkg_resources
 import site
 import sysconfig
-import distutils
-import distutils.core
-import distutils.dir_util
-import distutils.file_util
-import distutils.util
-import distutils.sysconfig
-import distutils.log
-import distutils.spawn
-import distutils.archive_util
-import distutils.version
+from enum import Enum, auto
+from dataclasses import dataclass, field, asdict
+from typing import (
+    Any, Optional, Union, List, Dict, Tuple, Set, 
+    Callable, Generator, Iterator, Iterable, Sequence, Mapping,
+    TypeVar, Generic, NamedTuple
+)
+from collections import deque
 
 # ========================================
-# Standard Library - OS/System Specific
+# Standard Library - OS/System Specific (Windows)
 # ========================================
 if platform.system() == "Windows":
     import winreg
-    import winsound
-    import win32api
-    import win32con
-    import win32file
-    import win32pipe
-    import win32process
-    import win32security
-    import win32event
-    import win32service
-    import win32serviceutil
-    import win32serviceutil
-    import win32evtlog
-    import win32evtlogutil
-    import win32net
-    import win32netcon
-    import win32profile
-    import win32ts
-    import win32wnet
-    import win32clipboard
-    import win32com
-    import win32com.client
-    import pythoncom
-    import pywintypes
-    import wmi
-    import _winreg
     import ctypes
     import ctypes.wintypes
     from ctypes import windll, wintypes
-
-elif platform.system() == "Darwin":
-    import plistlib
-    import launchd
-    import CoreFoundation
-    import Foundation
-    import AppKit
-    import Cocoa
-    import Quartz
-    import CoreGraphics
-    import CoreText
-    import CoreAudio
-    import AudioToolbox
-    import AudioUnit
-    import CoreMIDI
-    import DiskArbitration
-    import IOKit
-    import SystemConfiguration
-    import Network
-    import Security
-
-elif platform.system() == "Linux":
-    import posix
-    import pwd
-    import grp
-    import spwd
-    import shadow
-    import crypt
-    import termios
-    import tty
-    import fcntl
-    import resource
-    import syslog
-    import dbus
-    import dbus.mainloop.glib
-    import dbus.service
-    import dbus.exceptions
-    import pyinotify
-    import inotify
-    import xattr
-    import selinux
-    import selinux.audit2why
+    import win32com.client
+    import pythoncom
+    import wmi
 
 # ========================================
 # Standard Library - Threading & Concurrency
 # ========================================
-import threading
-from threading import Thread, Lock, RLock, Semaphore, BoundedSemaphore, Event, Condition, Barrier
-import queue
-from queue import Queue, PriorityQueue, LifoQueue, SimpleQueue
-import concurrent
+from threading import Thread, Lock, Event
+from queue import Queue
 import concurrent.futures
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 import multiprocessing
-from multiprocessing import Process, Pool, Queue as MPQueue, Pipe, Lock as MPLock, RLock as MPRLock
-from multiprocessing import Semaphore as MPSemaphore, BoundedSemaphore as MPBSemaphore, Event as MPEvent
-from multiprocessing import Condition as MPCondition, Barrier as MPBarrier
-import asyncio
-import asyncio.events
-import asyncio.tasks
-import asyncio.futures
-import asyncio.transports
-import asyncio.protocols
-import asyncio.streams
-import asyncio.subprocess
-import asyncio.queues
-import asyncio.locks
-import asyncio.events
-import asyncio.base_events
-import asyncio.unix_events
-import asyncio.windows_events
+from multiprocessing import Process, Queue as MPQueue, Pipe
 
 # ========================================
 # Standard Library - Networking
 # ========================================
-import socket
 import ssl
 import select
-import selectors
-import asyncore
-import asynchat
 import socketserver
-import http
-import http.server
 import http.client
-import http.cookies
 import http.cookiejar
-import urllib
-import urllib.request
-import urllib.response
-import urllib.parse
-import urllib.error
-import urllib.robotparser
-import ftplib
-import poplib
-import imaplib
-import nntplib
-import smtplib
-import smtpd
-import telnetlib
-import uuid
 import ipaddress
-import netrc
-import getpass
-import cgi
-import cgitb
-import wsgiref
-import wsgiref.simple_server
-import wsgiref.handlers
-import wsgiref.util
-import wsgiref.validate
-import xmlrpc
-import xmlrpc.client
-import xmlrpc.server
-import jsonrpclib
-import simplejson
-import ujson
 
 # ========================================
-# Standard Library - Data Processing
-# ========================================
-import csv
-import json
-import pickle
-import marshal
-import shelve
-import dbm
-import dbm.dumb
-import dbm.gnu
-import dbm.ndbm
-import sqlite3
-import sqlite3.dbapi2
-import anydbm
-import whichdb
-import bsddb
-import bsddb.db
-import pickle
-import cPickle
-import jsonpickle
-import yaml
-import xml
-import xml.etree.ElementTree
-import xml.dom
-import xml.dom.minidom
-import xml.dom.pulldom
-import xml.sax
-import xml.sax.handler
-import xml.sax.saxutils
-import xml.sax.xmlreader
-import xml.parsers
-import xml.parsers.expat
-import html
-import html.parser
-import html.entities
-import HTMLParser
-import BeautifulSoup
-import lxml
-import lxml.etree
-import lxml.html
-import lxml.html.clean
-import lxml.html.soupparser
-import cssselect
-
-# ========================================
-# Standard Library - Mathematical & Scientific
-# ========================================
-import math
-import cmath
-import decimal
-import fractions
-import random
-import statistics
-import itertools
-import functools
-import operator
-import collections
-import heapq
-import bisect
-import array
-import weakref
-import types
-import copyreg
-import reprlib
-import enum
-import numbers
-import contextvars
-import dataclasses
-from dataclasses import dataclass, field, asdict
-import typing
-from typing import (
-    Any, Optional, Union, List, Dict, Tuple, Set, FrozenSet,
-    Callable, Generator, Iterator, Iterable, Sequence, Mapping,
-    TypeVar, Generic, NewType, NamedTuple, TypedDict,
-    Protocol, runtime_checkable, Final, Literal, overload
-)
-
-# ========================================
-# Third Party - PyQt5 (Full)
+# Third Party - GUI (PyQt5)
 # ========================================
 from PyQt5.QtCore import (
-    Qt, QObject, QTimer, QThread, QUrl, QPoint, QRect, QSize,
-    pyqtSignal, pyqtSlot, QSettings, QByteArray,
-    QIODevice, QFile, QDir, QMutex, QWaitCondition,
+    Qt, QObject, QTimer, QThread, QUrl, QRect, QSize,
+    pyqtSignal, pyqtSlot, QByteArray, QIODevice, QFile, QDir,
     QPropertyAnimation, QEasingCurve, QProcess, QDateTime,
     QCoreApplication, QEventLoop, QThreadPool, QRunnable,
-    QMetaObject, QMetaType, QVariant, QModelIndex,
-    QAbstractListModel, QAbstractTableModel, QStringListModel,
-    QSortFilterProxyModel, QItemSelectionModel, QItemSelection,
-    QPersistentModelIndex, QRegExp, QRegularExpression,
-    QLibraryInfo, QSysInfo, QStandardPaths, QStorageInfo,
-    QCommandLineParser, QCommandLineOption, QTranslator,
-    QLocale, QTimeZone, QCalendar, QDate, QTime,
-    QElapsedTimer, QBasicTimer, QTimerEvent,
-    QAbstractNativeEventFilter, QAbstractEventDispatcher,
-    QSocketNotifier, QEvent, QCoreApplication, QObjectCleanupHandler,
-    QSignalMapper, QSignalBlocker, QSignalTransition,
-    QState, QStateMachine, QFinalState, QHistoryState,
-    QAbstractTransition, QEventTransition, QKeyEventTransition,
-    QMouseEventTransition, QPropertyAnimation, QPauseAnimation,
-    QSequentialAnimationGroup, QParallelAnimationGroup,
-    QAnimationGroup, QVariantAnimation, QAbstractAnimation
+    QMetaObject, QLibraryInfo, QSysInfo, QStandardPaths,
+    QLocale, QDate, QTime, QElapsedTimer, QBasicTimer,
+    QSocketNotifier, QEvent, QObjectCleanupHandler,
+    QState, QStateMachine, QFinalState
 )
 
 from PyQt5.QtGui import (
     QIcon, QColor, QPixmap, QFont, QFontDatabase, QPalette,
     QPainter, QPen, QLinearGradient, QBrush, QCursor, QClipboard,
     QKeySequence, QImage, QPainterPath, QTransform,
-    QTextCursor, QTextDocument, QTextBlock, QTextCharFormat,
-    QTextBlockFormat, QTextListFormat, QTextTableFormat,
-    QTextFrameFormat, QTextImageFormat, QSyntaxHighlighter,
-    QTextDocumentFragment, QTextLength, QTextOption,
-    QTextLayout, QTextLine, QTextFrame, QTextTable, QTextList,
-    QTextTableCell, QAbstractTextDocumentLayout,
-    QFontMetrics, QFontMetricsF, QFontInfo, QFontComboBox,
-    QLinearGradient, QRadialGradient, QConicalGradient,
-    QGradient, QBrush, QPen, QPainter, QPicture, QPictureIO,
+    QTextCursor, QTextDocument, QTextCharFormat,
+    QFontMetrics, QFontMetricsF, QFontInfo,
+    QLinearGradient, QRadialGradient, QBrush, QPen,
     QPixmapCache, QBitmap, QMovie, QImageReader, QImageWriter,
-    QPictureFormatPlugin, QIconEngine, QIconEngineV2,
-    QDrag, QDragEnterEvent, QDragMoveEvent, QDragLeaveEvent,
-    QDropEvent, QDragResponseEvent, QWindow, QSurfaceFormat,
-    QOpenGLContext, QOpenGLBuffer, QOpenGLShader,
-    QOpenGLShaderProgram, QOpenGLTexture, QOpenGLFramebufferObject,
-    QOpenGLPaintDevice, QOpenGLVertexArrayObject, QOpenGLDebugLogger,
-    QOpenGLDebugMessage, QOpenGLFunctions, QOpenGLExtraFunctions,
-    QOffscreenSurface, QScreen, QPlatformSurface,
-    QWindowSystemInterface, QBackingStore, QRasterWindow,
-    QPaintDeviceWindow, QOpenGLWindow, QOpenGLWidget,
-    QAbstractOpenGLFunctions, QOpenGLVersionProfile
+    QDrag, QWindow, QScreen, QOpenGLContext, QOpenGLWidget,
+    QDesktopServices
 )
 
 from PyQt5.QtWidgets import (
@@ -411,174 +159,37 @@ from PyQt5.QtWidgets import (
     QSlider, QColorDialog, QListWidget, QSplitter, QAction,
     QToolBar, QDockWidget, QSplashScreen, QProgressDialog,
     QGraphicsDropShadowEffect, QStyleFactory, QStyle,
-    QStyleOption, QStylePainter, QCommonStyle, QProxyStyle,
-    QWindowsStyle, QFusionStyle, QMacStyle, QWindowsVistaStyle,
-    QDesktopWidget, QDesktopServices, QToolButton, QButtonGroup,
-    QCheckBox, QAbstractButton, QDialogButtonBox, QButtonGroup,
-    QCommandLinkButton, QDateEdit, QTimeEdit, QDateTimeEdit,
-    QDial, QDoubleSpinBox, QFocusFrame, QFontDialog, QFontComboBox,
-    QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView,
-    QInputDialog, QItemDelegate, QKeySequenceEdit, QLCDNumber,
-    QLabel, QLayout, QLineEdit, QListView, QListWidget,
-    QListWidgetItem, QMainWindow, QMenu, QMenuBar, QMessageBox,
-    QPlainTextDocumentLayout, QPlainTextEdit, QProgressBar,
-    QProgressDialog, QPushButton, QRadioButton, QScrollBar,
-    QScrollArea, QShortcut, QSizePolicy, QSlider, QSpacerItem,
-    QSpinBox, QSplitter, QSplitterHandle, QStackedLayout,
-    QStackedWidget, QStatusBar, QStatusTipEvent, QStyleFactory,
-    QStyleHints, QStyleOption, QStylePainter, QTabBar,
-    QTableView, QTableWidget, QTableWidgetItem, QTabWidget,
-    QTextBrowser, QTextEdit, QTimeEdit, QToolBar, QToolBox,
-    QToolButton, QTreeView, QTreeWidget, QTreeWidgetItem,
-    QUndoCommand, QUndoGroup, QUndoStack, QUndoView,
-    QWhatsThis, QWidgetAction, QWizard, QWizardPage
+    QCheckBox, QDialogButtonBox, QFontDialog, QGridLayout,
+    QHeaderView, QInputDialog, QLCDNumber, QListView,
+    QListWidgetItem, QMenuBar, QPlainTextEdit, QScrollBar,
+    QSizePolicy, QSpacerItem, QStackedWidget, QTableWidget,
+    QTableWidgetItem, QTabBar, QTableView, QTextBrowser,
+    QToolButton, QTreeWidget, QTreeWidgetItem
 )
 
 from PyQt5.QtMultimedia import (
-    QMediaPlayer, QMediaContent, QMediaMetaData, QMediaResource,
-    QMediaPlaylist, QMediaService, QMediaControl,
-    QMediaPlayerControl, QMediaServiceProviderPlugin,
-    QMediaServiceDefaultDeviceInterface, QCamera, QCameraInfo,
-    QCameraExposure, QCameraFocus, QCameraImageCapture,
-    QCameraImageProcessing, QCameraViewfinder, QCameraViewfinderSettings,
-    QAudioRecorder, QAudioProbe, QVideoProbe,
-    QMediaRecorder, QMediaFormat, QMediaTimeRange,
-    QAudio, QAudioDeviceInfo, QAudioFormat, QAudioInput,
-    QAudioOutput, QSound, QSoundEffect, QAudioDecoder,
-    QAudioEncoderSettings, QVideoEncoderSettings,
-    QImageEncoderSettings, QMediaContainerFormat
+    QMediaPlayer, QMediaContent, QMediaMetaData, QMediaPlaylist
 )
 
-from PyQt5.QtMultimediaWidgets import (
-    QVideoWidget, QCameraViewfinder, QGraphicsVideoItem,
-    QVideoWidgetControl, QVideoWindowControl, QVideoWidgetControl
-)
+from PyQt5.QtMultimediaWidgets import QVideoWidget
 
 from PyQt5.QtNetwork import (
     QTcpServer, QTcpSocket, QUdpSocket, QNetworkAccessManager,
     QNetworkRequest, QNetworkReply, QNetworkProxy,
-    QNetworkProxyFactory, QNetworkConfigurationManager,
-    QNetworkConfiguration, QNetworkSession, QNetworkInterface,
-    QNetworkAddressEntry, QHostInfo, QHostAddress, QAbstractSocket,
-    QSslSocket, QSslCertificate, QSslKey, QSslConfiguration,
-    QSslError, QSslCipher, QLocalServer, QLocalSocket,
-    QHttpMultiPart, QHttpPart, QAuthenticator, QDnsLookup,
-    QDnsDomainNameRecord, QDnsServiceRecord, QDnsTextRecord,
-    QDnsMailExchangeRecord, QNetworkCookie, QNetworkCookieJar
+    QHostInfo, QHostAddress, QAbstractSocket, QSslSocket,
+    QSslCertificate, QSslConfiguration, QSslError, QLocalServer,
+    QLocalSocket, QNetworkCookie, QNetworkCookieJar
 )
 
-from PyQt5.QtWebEngineWidgets import (
-    QWebEngineView, QWebEnginePage, QWebEngineSettings,
-    QWebEngineProfile, QWebEngineScript, QWebEngineHistory,
-    QWebEngineHistoryItem, QWebEngineDownloadItem,
-    QWebEngineCertificateError, QWebEngineFullScreenRequest,
-    QWebEngineNewViewRequest, QWebEngineRegisterProtocolHandlerRequest,
-    QWebEngineQuotaRequest, QWebEngineUrlRequestInfo,
-    QWebEngineUrlRequestInterceptor, QWebEngineUrlRequestJob,
-    QWebEngineUrlSchemeHandler, QWebEngineUrlScheme
-)
+from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
 
-from PyQt5.QtWebChannel import QWebChannel, QWebChannelAbstractTransport
-
-from PyQt5.QtWebSockets import (
-    QWebSocket, QWebSocketServer, QWebSocketProtocol,
-    QWebSocketCorsAuthenticator, QWebSocketServerOptions
-)
-
-from PyQt5.QtPrintSupport import (
-    QPrinter, QPrintDialog, QPrintPreviewDialog,
-    QPrintPreviewWidget, QPrinterInfo, QPageSetupDialog
-)
-
-from PyQt5.QtSvg import QSvgWidget, QSvgRenderer, QSvgGenerator
-
-from PyQt5.QtHelp import (
-    QHelpEngine, QHelpEngineCore, QHelpContentWidget,
-    QHelpIndexWidget, QHelpSearchEngine, QHelpSearchQuery,
-    QHelpSearchResult, QHelpSearchResultWidget, QHelpLink
-)
+from PyQt5.QtSvg import QSvgWidget, QSvgRenderer
 
 # ========================================
 # Third Party - Scientific Computing
 # ========================================
 import numpy as np
-from numpy import (
-    array, zeros, ones, empty, full, eye, identity,
-    linspace, logspace, arange, meshgrid, mgrid, ogrid,
-    random, linalg, fft, polynomial, polynomial.polynomial,
-    polynomial.chebyshev, polynomial.legendre, polynomial.laguerre,
-    polynomial.hermite, polynomial.hermite_e, polynomial.Polynomial
-)
-
-import scipy
-from scipy import (
-    io, sparse, linalg, fftpack, integrate, interpolate,
-    optimize, signal, ndimage, stats, misc, special,
-    cluster, constants, odr, spatial, weave
-)
-
-import pandas as pd
-from pandas import (
-    Series, DataFrame, Index, MultiIndex, DatetimeIndex,
-    PeriodIndex, TimedeltaIndex, CategoricalIndex,
-    IntervalIndex, RangeIndex, Float64Index, Int64Index,
-    UInt64Index, read_csv, read_excel, read_hdf, read_sql,
-    read_json, read_html, read_clipboard, read_table,
-    ExcelWriter, HDFStore, ExcelFile, ExcelWriter,
-    date_range, bdate_range, period_range, timedelta_range,
-    interval_range, to_datetime, to_timedelta, to_numeric,
-    concat, merge, merge_asof, merge_ordered, join,
-    pivot, pivot_table, crosstab, cut, qcut, factorize,
-    get_dummies, lreshape, wide_to_long, melt,
-    DataFrame, Series, IndexSlice
-)
-
-import matplotlib
-import matplotlib.pyplot as plt
-from matplotlib import (
-    figure, axes, axis, artist, lines, patches, text,
-    image, collections, colors, cm, animation, dates,
-    ticker, scale, gridspec, legend, table, transforms,
-    widgets, backend_bases, backends, rcParams,
-    rcParamsDefault, rc_context, rc, rcdefaults, style
-)
-
-from matplotlib.figure import Figure
-from matplotlib.axes import Axes
-from matplotlib.backends.backend_qt5agg import (
-    FigureCanvasQTAgg as FigureCanvas,
-    NavigationToolbar2QT as NavigationToolbar
-)
-
-import seaborn as sns
-from seaborn import (
-    set_theme, set_style, set_palette, color_palette,
-    despine, axes_style, plotting_context,
-    relplot, displot, catplot, lmplot, jointplot,
-    pairplot, kdeplot, ecdfplot, rugplot, distplot,
-    histplot, boxplot, violinplot, stripplot, swarmplot,
-    pointplot, barplot, countplot, lineplot, scatterplot,
-    regplot, residplot, heatmap, clustermap
-)
-
-import plotly
-import plotly.graph_objs as go
-import plotly.express as px
-import plotly.figure_factory as ff
-import plotly.io as pio
-import plotly.offline as py_offline
-import plotly.subplots as sp
-
-import bokeh
-import bokeh.plotting
-import bokeh.models
-import bokeh.layouts
-import bokeh.io
-import bokeh.embed
-import bokeh.resources
-import bokeh.application
-import bokeh.application.handlers
-import bokeh.server.server
+from numpy import array, zeros, ones
 
 # ========================================
 # Third Party - AI/ML & Deep Learning
@@ -587,74 +198,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.optim import Adam, SGD, AdamW, RMSprop, Adagrad, Adadelta
-import torch.utils.data
-from torch.utils.data import Dataset, DataLoader, TensorDataset
-import torchvision
-import torchvision.transforms as transforms
-import torchvision.models as models
-import torchvision.datasets as datasets
+from torch.utils.data import DataLoader
 import torchaudio
-import torchaudio.functional as F_audio
-import torchaudio.transforms as T_audio
-import torchaudio.sox_effects as sox_effects
-import torchaudio.compliance.kaldi as kaldi
-import torchaudio.models
-import torchaudio.prototype
-import torchaudio.pipelines
-import torchaudio.transforms
-
 import whisper
-from whisper import load_model, transcribe, log_mel_spectrogram, decode
-import whisper.audio
-import whisper.decoding
-import whisper.model
-import whisper.tokenizer
-import whisper.utils
-
+from whisper import load_model, transcribe
 import transformers
-from transformers import (
-    AutoModel, AutoTokenizer, AutoConfig, AutoModelForCausalLM,
-    AutoModelForSeq2SeqLM, AutoModelForQuestionAnswering,
-    AutoModelForSequenceClassification, AutoModelForTokenClassification,
-    AutoModelForMaskedLM, AutoModelForMultipleChoice,
-    AutoModelForNextSentencePrediction, AutoModelForPreTraining,
-    AutoModelWithLMHead, AutoModelForSpeechSeq2Seq,
-    pipeline, set_seed, Trainer, TrainingArguments,
-    DataCollator, DataCollatorWithPadding, default_data_collator,
-    PreTrainedModel, PreTrainedTokenizer, PreTrainedTokenizerFast,
-    PretrainedConfig, Conv1D, BertModel, GPT2Model,
-    T5Model, BartModel, RobertaModel, AlbertModel,
-    DistilBertModel, XLNetModel, TransfoXLModel,
-    CTRLModel, XLMProphetNetModel, XLMWithLMHeadModel,
-    FlaubertModel, ElectraModel, LongformerModel,
-    CamembertModel, DebertaModel, DebertaV2Model,
-    FunnelModel, ReformerModel, XLMModel, XLMRobertaModel,
-    MPNetModel, TapasModel, LayoutLMModel, LayoutLMv2Model,
-    LayoutLMv3Model, VisualBertModel, LxmertModel,
-    VilbertModel, MMBTModel, CLIPModel, BlipModel,
-    BlipProcessor, BlipForConditionalGeneration, BlipForQuestionAnswering,
-    BlipForImageTextRetrieval, BlipForImageTextRetrieval,
-    BlipProcessor, BlipImageProcessor, BlipFeatureExtractor
-)
+from transformers import pipeline
 
-import sentencepiece
-import tokenizers
-import sacremoses
-import sacrebleu
-import rouge_score
+# NLP Libraries
 import nltk
-from nltk import word_tokenize, sent_tokenize, pos_tag, ne_chunk
-from nltk.corpus import stopwords, wordnet
-from nltk.stem import WordNetLemmatizer, PorterStemmer, SnowballStemmer
-import spacy
-import gensim
-from gensim import corpora, models, similarities
+from nltk import word_tokenize, sent_tokenize
+from nltk.corpus import stopwords
 import langdetect
-import googletrans
-from googletrans import Translator as GoogleTranslator
-import deep_translator
-from deep_translator import GoogleTranslator as DeepGoogleTranslator
 
 # ========================================
 # Third Party - Audio Processing
@@ -662,102 +217,40 @@ from deep_translator import GoogleTranslator as DeepGoogleTranslator
 import wave
 import audioop
 import soundfile as sf
-import sounddevice as sd
-import pyaudio
 import librosa
-import librosa.display
-import librosa.feature
-import librosa.core
-import librosa.effects
-import librosa.onset
-import librosa.beat
-import librosa.filters
-import librosa.sequence
-import librosa.util
 import audioread
 import pydub
 from pydub import AudioSegment
-from pydub.playback import play
-from pydub.effects import normalize, compress_dynamic_range
+from pydub.effects import normalize
 from pydub.silence import detect_silence, split_on_silence
 import mutagen
-from mutagen import File, MutagenError
+from mutagen import File
 from mutagen.mp3 import MP3
 from mutagen.flac import FLAC
-from mutagen.oggvorbis import OggVorbis
 from mutagen.mp4 import MP4
-from mutagen.wave import WAVE
-from mutagen.aiff import AIFF
-from mutagen.asf import ASF
-from mutagen.apev2 import APEv2
-from mutagen.id3 import ID3
-import acoustid
-import chromaprint
-import essentia
-import essentia.standard as es
-import essentia.streaming as ess
-from essentia import Pool, array
-import madmom
-from madmom import features, processors, models
-import aubio
-import vamp
-import mir_eval
-import mir_eval.display
-import mir_eval.io
-import mir_eval.sonify
-import mir_eval.util
-import pydub
-import simpleaudio as sa
-import pygame.mixer
-import pyo
-import pysndfile
-import pyroomacoustics
 
 # ========================================
 # Third Party - Video/Media Processing
 # ========================================
 import cv2
 from cv2 import (
-    VideoCapture, VideoWriter, imread, imwrite, imshow,
-    cvtColor, COLOR_BGR2GRAY, COLOR_GRAY2BGR, COLOR_BGR2RGB,
-    COLOR_RGB2BGR, resize, flip, rotate, threshold,
-    GaussianBlur, medianBlur, bilateralFilter, Canny,
-    Sobel, Laplacian, findContours, drawContours,
-    contourArea, arcLength, boundingRect, minAreaRect,
-    moments, HuMoments, matchTemplate, matchShapes,
-    calcHist, equalizeHist, createCLAHE, goodFeaturesToTrack,
-    cornerHarris, cornerSubPix, cornerMinEigenVal,
-    calcOpticalFlowPyrLK, calcOpticalFlowFarneback,
-    estimateRigidTransform, findHomography, getPerspectiveTransform,
-    warpPerspective, warpAffine, getRotationMatrix2D,
-    getAffineTransform, getRectSubPix, getBuildInformation,
-    haveImageReader, haveImageWriter, imencode, imdecode,
-    VideoWriter_fourcc, CAP_PROP_FPS, CAP_PROP_FRAME_WIDTH,
-    CAP_PROP_FRAME_HEIGHT, CAP_PROP_POS_MSEC, CAP_PROP_POS_FRAMES
+    VideoCapture, VideoWriter, imread, imwrite, cvtColor,
+    COLOR_BGR2RGB, COLOR_RGB2BGR, resize, flip, rotate,
+    GaussianBlur, medianBlur
 )
 
 import moviepy
 from moviepy.editor import (
-    VideoFileClip, AudioFileClip, ImageClip, TextClip,
-    CompositeVideoClip, CompositeAudioClip, concatenate_videoclips,
-    concatenate_audioclips, clips_array, vfx, afx, transfx,
-    VideoClip, AudioClip, ColorClip, MaskClip, Clip,
-    VideoClip, AudioClip, CompositeVideoClip, CompositeAudioClip,
-    concatenate_videoclips, concatenate_audioclips, clips_array,
-    vfx, afx, transfx, VideoClip, AudioClip, ColorClip,
-    MaskClip, Clip, VideoFileClip, AudioFileClip, ImageClip,
-    TextClip, CompositeVideoClip, CompositeAudioClip,
-    concatenate_videoclips, concatenate_audioclips, clips_array,
-    vfx, afx, transfx
+    VideoFileClip, AudioFileClip, CompositeVideoClip,
+    concatenate_videoclips, CompositeAudioClip
 )
 
 import ffmpeg
 import imageio
-import imageio_ffmpeg
 import PIL
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import skimage
-from skimage import io, filters, measure, morphology, segmentation, exposure
+from skimage import io, filters, exposure
 
 # ========================================
 # Third Party - Subtitles Processing
@@ -767,18 +260,10 @@ from pysrt import SubRipFile, SubRipItem, SubRipTime
 import pysubs2
 from pysubs2 import SSAFile, SSAEvent, SSAStyle
 import chardet
-import ffmpeg
-import ass
-import webvtt
-import pycaption
-from pycaption import SRTReader, SRTWriter, WebVTTReader, WebVTTWriter
-import subtitleedit
-import subed
 
 # ========================================
 # Third Party - Cloud Services & APIs
 # ========================================
-# Google APIs
 try:
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
@@ -786,36 +271,6 @@ try:
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
     from googleapiclient.errors import HttpError
-    import google.auth
-    import google.oauth2
-    import google.auth.transport.requests
-    import google.auth.exceptions
-    import google.oauth2.credentials
-    import google.oauth2.service_account
-    import googleapiclient
-    import googleapiclient.discovery
-    import googleapiclient.errors
-    import googleapiclient.http
-    import googleapiclient.model
-    import googleapiclient.schema
-    import googleapiclient.channel
-except ImportError:
-    pass
-
-# AWS
-try:
-    import boto3
-    from boto3 import Session, client, resource
-    import botocore
-    from botocore import exceptions, config
-    import s3fs
-except ImportError:
-    pass
-
-# Azure
-try:
-    from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
-    from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
 except ImportError:
     pass
 
@@ -824,473 +279,166 @@ except ImportError:
 # ========================================
 import psutil
 from psutil import (
-    cpu_percent, cpu_count, cpu_freq, cpu_stats, cpu_times,
-    virtual_memory, swap_memory, disk_usage, disk_io_counters,
-    net_io_counters, net_connections, net_if_addrs, net_if_stats,
-    sensors_temperatures, sensors_fans, sensors_battery,
-    boot_time, users, pids, process_iter, Process, Popen,
-    NoSuchProcess, AccessDenied, ZombieProcess, TimeoutExpired
+    cpu_percent, cpu_count, cpu_freq, virtual_memory, 
+    swap_memory, disk_usage, disk_io_counters,
+    net_io_counters, net_if_addrs, net_if_stats,
+    sensors_temperatures, sensors_battery,
+    boot_time, users, pids, process_iter, Process
 )
 
 import GPUtil
-from GPUtil import getGPUs, GPU, getAvailable, showUtilization
+from GPUtil import getGPUs
 
 import pynvml
 from pynvml import (
     nvmlInit, nvmlDeviceGetCount, nvmlDeviceGetHandleByIndex,
-    nvmlDeviceGetName, nvmlDeviceGetSerial, nvmlDeviceGetUUID,
-    nvmlDeviceGetMemoryInfo, nvmlDeviceGetUtilizationRates,
-    nvmlDeviceGetTemperature, nvmlDeviceGetPowerUsage,
-    nvmlDeviceGetEnforcedPowerLimit, nvmlDeviceGetClockInfo,
-    nvmlDeviceGetMaxClockInfo, nvmlDeviceGetFanSpeed,
-    nvmlDeviceGetComputeRunningProcesses, nvmlDeviceGetGraphicsRunningProcesses,
-    nvmlSystemGetDriverVersion, nvmlSystemGetNVMLVersion,
-    nvmlSystemGetCudaDriverVersion, nvmlSystemGetProcessName,
-    NVML_TEMPERATURE_GPU, NVML_CLOCK_GRAPHICS, NVML_CLOCK_MEM,
-    NVML_CLOCK_SM, NVML_CLOCK_VIDEO, NVML_POWER_SCOPE_BOARD,
-    NVML_POWER_SCOPE_MODULE, NVML_POWER_SCOPE_CARD,
-    NVML_PERF_LEVEL_MAX, NVML_PERF_LEVEL_MIN
+    nvmlDeviceGetName, nvmlDeviceGetMemoryInfo,
+    nvmlDeviceGetUtilizationRates, nvmlDeviceGetTemperature,
+    nvmlDeviceGetPowerUsage, nvmlDeviceGetFanSpeed,
+    nvmlSystemGetDriverVersion
 )
 
-# AMD GPU
+# AMD GPU (optional)
 try:
     import pyamdgpuinfo
 except ImportError:
     pyamdgpuinfo = None
-
-# OpenCL
-try:
-    import pyopencl as cl
-    from pyopencl import (
-        create_some_context, CommandQueue, Context, Device,
-        Platform, Program, Kernel, Buffer, Image, Event,
-        mem_flags, map_flags, command_queue_properties,
-        device_type, platform_properties, device_properties,
-        SVM, SVMPointer, SVMAllocator
-    )
-except ImportError:
-    cl = None
-
-# Vulkan
-try:
-    import vulkan as vk
-    from vulkan import (
-        VkApplicationInfo, VkInstanceCreateInfo, VkPhysicalDevice,
-        VkDeviceCreateInfo, VkDeviceQueueCreateInfo, VkQueue,
-        VkCommandPoolCreateInfo, VkCommandBufferAllocateInfo,
-        VkCommandBuffer, VkFence, VkSemaphore, VkEvent,
-        VkQueryPool, VkBuffer, VkImage, VkDeviceMemory,
-        VkRenderPass, VkFramebuffer, VkPipeline, VkPipelineLayout,
-        VkShaderModule, VkDescriptorSetLayout, VkDescriptorPool,
-        VkDescriptorSet, VkSampler, VkSwapchainKHR,
-        vkCreateInstance, vkEnumeratePhysicalDevices,
-        vkGetPhysicalDeviceProperties, vkGetPhysicalDeviceMemoryProperties,
-        vkGetPhysicalDeviceQueueFamilyProperties, vkCreateDevice,
-        vkGetDeviceQueue, vkDestroyInstance, vkDestroyDevice,
-        vkEnumerateInstanceVersion, VK_API_VERSION_1_0, VK_API_VERSION_1_1,
-        VK_API_VERSION_1_2, VK_API_VERSION_1_3
-    )
-except ImportError:
-    vk = None
 
 # ========================================
 # Third Party - Audio Enhancement
 # ========================================
 import spleeter
 from spleeter.separator import Separator
-from spleeter.audio.adapter import AudioAdapter
-from spleeter.model import model_loader
-from spleeter.model.provider import ModelProvider
-from spleeter.utils.configuration import load_configuration
-from spleeter.utils.logging import logger as spleeter_logger
-from spleeter.utils.tensor import transfer_tensor
-from spleeter.utils.tf import set_memory_growth
-
-import demucs
-from demucs import apply, pretrained, separate, utils
-from demucs.api import Separator as DemucsSeparator
-from demucs.apply import apply_model
-from demucs.pretrained import get_model, DEFAULT_MODEL
-from demucs.utils import center_trim, load_audio, save_audio
 
 import noisereduce
 import pyloudnorm as pyln
-import pydub.effects
-import pydub.scipy_effects
-import pydub.silence
-import pydub.generators
-import pydub.playback
-import pydub.audio_segment
 
 # ========================================
 # Third Party - Cryptography & Security
 # ========================================
 from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes, hmac
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives.asymmetric import rsa, dsa, ec, padding
-from cryptography.hazmat.primitives.serialization import (
-    load_pem_private_key, load_der_private_key,
-    load_pem_public_key, load_der_public_key,
-    Encoding, PrivateFormat, PublicFormat, NoEncryption,
-    BestAvailableEncryption
-)
-from cryptography.hazmat.backends import default_backend
-from cryptography.x509 import (
-    Name, NameAttribute, CertificateBuilder, CertificateSigningRequestBuilder,
-    random_serial_number, load_pem_x509_certificate, load_der_x509_certificate
-)
-from cryptography.x509.oid import NameOID
 
 import jwt
-from jwt import encode, decode, PyJWTError, ExpiredSignatureError, InvalidTokenError
-
 import secrets
 import hashlib
 import hmac
-import binascii
-import codecs
-import passlib
-from passlib.hash import pbkdf2_sha256, argon2, bcrypt
-from passlib.context import CryptContext
 
 # ========================================
 # Third Party - GUI Enhancements
 # ========================================
 import pyqtgraph as pg
-from pyqtgraph import (
-    GraphicsLayoutWidget, PlotWidget, PlotItem, ViewBox,
-    GraphicsObject, GraphicsItem, InfiniteLine, LinearRegionItem,
-    LegendItem, LabelItem, TextItem, ImageItem, HistogramLUTItem,
-    ROI, PolyLineROI, EllipseROI, CircleROI, RectROI,
-    Point, SignalProxy, functions, exporters, parametertree
-)
+from pyqtgraph import PlotWidget, GraphicsLayoutWidget
 
 import qdarkstyle
 from qdarkstyle import load_stylesheet_pyqt5
-import qdarkstyle.dark.palette as dark_palette
-import qdarkstyle.light.palette as light_palette
 
 import qtawesome as qta
-from qtawesome import icon, set_defaults, font
-import qtmodern
-import qtmodern.styles
-import qtmodern.windows
 
 import pyperclip
 import screeninfo
 from screeninfo import get_monitors
 import pystray
 from pystray import Icon, Menu, MenuItem
-import notify2
 import plyer
-from plyer import notification, vibrator, battery, cpu, wifi
+from plyer import notification
 
 # ========================================
-# Third Party - Progress Bars & Visualization
+# Third Party - Progress Bars
 # ========================================
-from tqdm import tqdm, trange
-from tqdm.auto import tqdm as tqdm_auto
-from tqdm.notebook import tqdm as tqdm_notebook
-from tqdm.gui import tqdm as tqdm_gui
-
+from tqdm import tqdm
 import rich
 from rich.console import Console
-from rich.table import Table
-from rich.progress import (
-    Progress, BarColumn, TextColumn, TimeRemainingColumn,
-    SpinnerColumn, ProgressColumn, ProgressBar
-)
-from rich.panel import Panel
-from rich.layout import Layout
-from rich.live import Live
-from rich.text import Text
-from rich.markdown import Markdown
-from rich.syntax import Syntax
-from rich.traceback import Traceback
-
-import alive_progress
-from alive_progress import alive_bar, config_handler
-
-# ========================================
-# Third Party - Error Handling & Logging
-# ========================================
-import sentry_sdk
-from sentry_sdk import capture_exception, capture_message, set_user
-import rollbar
-import raven
-from raven import Client as RavenClient
-import bugsnag
-from bugsnag.handlers import BugsnagHandler
-import newrelic.agent
-import datadog
-from datadog import initialize, api, statsd
-import prometheus_client
-from prometheus_client import Counter, Gauge, Histogram, Summary, start_http_server
+from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
 
 # ========================================
 # Third Party - Database & Storage
 # ========================================
 import sqlalchemy
-from sqlalchemy import (
-    create_engine, MetaData, Table, Column, Integer, String,
-    Float, Boolean, DateTime, ForeignKey, Index, UniqueConstraint,
-    PrimaryKeyConstraint, CheckConstraint, text, select, insert,
-    update, delete, and_, or_, not_, asc, desc, func
-)
-from sqlalchemy.orm import sessionmaker, relationship, backref
-from sqlalchemy.ext.declarative import declarative_base
-import datasets
-from datasets import load_dataset, Dataset, DatasetDict, Features, ClassLabel, Value
-import huggingface_hub
-from huggingface_hub import HfApi, HfFolder, Repository, hf_hub_url
+from sqlalchemy import create_engine, text, select, insert, update, delete
+from sqlalchemy.orm import sessionmaker
 import h5py
-import pytables
-import blosc
-import zstandard as zstd
-import lz4
-import snappy
-import brotli
 
 # ========================================
 # Third Party - Network & Web
 # ========================================
 import requests
-from requests import Session, get, post, put, delete, head, options, patch
-from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
-from urllib3 import PoolManager, ProxyManager, ProxyManager
+from requests import Session, get, post
 import aiohttp
-from aiohttp import ClientSession, ClientTimeout, ClientResponse, ClientError
-import httpx
-from httpx import Client, AsyncClient, Timeout, Limits, Auth
+from aiohttp import ClientSession
 import websocket
-from websocket import WebSocketApp, create_connection
-import socketio
-from socketio import Client as SocketIOClient
-import asyncio
+from websocket import create_connection
 import aiofiles
-import aiofiles.os
-import aiofiles.ospath
-import aiofiles.tempfile
 
 # ========================================
 # Third Party - Date/Time Processing
 # ========================================
 import pytz
-from pytz import timezone, all_timezones, common_timezones
+from pytz import timezone
 import dateutil
-from dateutil import parser, rrule, tz, relativedelta
+from dateutil import parser, relativedelta
 import arrow
-from arrow import Arrow, now, get, utcnow
-import pendulum
-from pendulum import DateTime, Date, Time, Duration, Period
-import delorean
-from delorean import Delorean
+from arrow import now
 
 # ========================================
 # Third Party - System Information
 # ========================================
 import cpuinfo
 from cpuinfo import get_cpu_info
-import platform
 import distro
-from distro import name, version, codename, info, like
-import wmi
-import pyad
-import ldap3
-import pythoncom
-import win32com.client
+from distro import name, version
 
 # ========================================
 # Third Party - Compression & Archiving
 # ========================================
-import zipfile
-import tarfile
-import gzip
-import bz2
-import lzma
-import zstandard as zstd
 import py7zr
 import rarfile
-import patoolib
-import pyunpack
-import patoolib
 
 # ========================================
-# Third Party - Miscellaneous Utilities
+# Third Party - Utilities
 # ========================================
 import coloredlogs
-import verboselogs
 import humanize
-from humanize import naturalsize, naturaltime, naturaldate, intcomma
-import inflect
+from humanize import naturalsize, naturaltime
 import jinja2
-from jinja2 import Template, Environment, FileSystemLoader
+from jinja2 import Template, Environment
 import markdown
-from markdown import markdown
 import emoji
-from emoji import emojize, demojize
-import chardet
-import cchardet
+from emoji import emojize
 import ftfy
-from ftfy import fix_text, fix_encoding
-import textstat
-from textstat import textstat
-import language_tool_python
+from ftfy import fix_text
 import pycountry
-import iso639
-import langcodes
-import phonenumbers
-from phonenumbers import PhoneNumber, PhoneNumberType, PhoneMetadata
-import validate_email
-import email_validator
 import validators
-from validators import url, email, domain, ipv4, ipv6
+from validators import url, email
 import jsonschema
-from jsonschema import validate, Draft7Validator, ValidationError
-import jsonpointer
-import jsonpatch
-import jsonpath_rw
-import jsonpath_ng
-import xmltodict
-import dicttoxml
+from jsonschema import validate
 import yaml
-import ruamel.yaml
 import toml
-import pytoml
-import configobj
 
 # ========================================
-# Third Party - Data Visualization
+# Third Party - Data Visualization (Minimal)
 # ========================================
-import matplotlib
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-import matplotlib.patches as patches
-import matplotlib.path as path
-import matplotlib.transforms as transforms
-import seaborn as sns
-import plotly
-import plotly.graph_objects as go
-import plotly.express as px
-import plotly.figure_factory as ff
-import plotly.io as pio
-import plotly.offline as py_offline
-import plotly.subplots as sp
-import bokeh
-import bokeh.plotting
-import bokeh.models
-import bokeh.layouts
-import bokeh.io
-import bokeh.embed
-import bokeh.resources
-import bokeh.application
-import bokeh.server
-import altair
-from altair import Chart, LayeredChart, VConcatChart, HConcatChart, FacetChart
-import vega
-import vegafusion
-import holoviews as hv
-from holoviews import opts
-import geoviews as gv
-import datashader as ds
-from datashader import transfer_functions as tf
-import colorcet as cc
-import panel as pn
-import param
-
-# ========================================
-# Third Party - Animation & Effects
-# ========================================
-import pyqtgraph as pg
-import pyqtgraph.exporters
-import pyqtgraph.parametertree
-import pyqtgraph.opengl as gl
-from pyqtgraph.opengl import (
-    GLViewWidget, GLScatterPlotItem, GLLinePlotItem,
-    GLMeshItem, GLSurfacePlotItem, GLBarGraphItem,
-    GLImageItem, GLVolumeItem
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_qt5agg import (
+    FigureCanvasQTAgg as FigureCanvas,
+    NavigationToolbar2QT as NavigationToolbar
 )
-import vispy
-from vispy import app, scene, color, io
-import mayavi
-from mayavi import mlab
-import fury
-from fury import window, actor, ui, utils
-import vtk
-from vtk import vtkRenderer, vtkRenderWindow, vtkRenderWindowInteractor, vtkActor
-import pyvista
-from pyvista import Plotter, PolyData, UnstructuredGrid, MultiBlock
 
 # ========================================
-# Third Party - Web Frameworks (for API)
+# Third Party - Web Frameworks (Minimal)
 # ========================================
-import fastapi
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
-import uvicorn
-import starlette
-from starlette.middleware import Middleware
-from starlette.middleware.cors import CORSMiddleware
-import pydantic
-from pydantic import BaseModel, Field, validator
-import sanic
-from sanic import Sanic, response
-import quart
-from quart import Quart, request, jsonify
-import aiohttp.web
-from aiohttp import web
 import flask
-from flask import Flask, request, jsonify, send_file, abort
-import flask_cors
-from flask_cors import CORS
-import django
-from django.conf import settings
-from django.core.wsgi import get_wsgi_application
-import tornado
-from tornado.web import Application, RequestHandler
-from tornado.ioloop import IOLoop
-import websockets
-from websockets import serve
+from flask import Flask, request, jsonify
 
 # ========================================
-# Third Party - Testing & Debugging
-# ========================================
-import pytest
-from pytest import approx, raises, fixture, mark
-import unittest
-from unittest import TestCase, mock, skip
-import doctest
-import coverage
-from coverage import Coverage
-import profiling
-from pyinstrument import Profiler
-import memory_profiler
-from memory_profiler import profile
-import line_profiler
-from line_profiler import LineProfiler
-import timeit
-import cProfile
-import pstats
-import snakeviz
-import pycallgraph
-from pycallgraph import PyCallGraph, Config
-from pycallgraph.output import GraphvizOutput
-
-# ========================================
-# Package Metadata and Version Control
+# Package Metadata
 # ========================================
 __version__ = "2026.5.0"
 __author__ = "NotY215"
 __license__ = "Proprietary"
-__copyright__ = "Copyright © 2026 NotY215. All rights reserved."
-__credits__ = ["OpenAI (Whisper)", "Deezer (Spleeter)", "PyQt Contributors"]
-__maintainer__ = "NotY215"
-__email__ = "noty215@github.com"
-__status__ = "Production"
+__copyright__ = f"Copyright © 2026 {__author__}. All rights reserved."
 
 # ========================================
 # Import Check & Fallbacks
@@ -1305,7 +453,9 @@ def check_imports():
         'pysrt': 'pysrt',
         'pysubs2': 'pysubs2',
         'psutil': 'psutil',
-        'cryptography': 'cryptography'
+        'cryptography': 'cryptography',
+        'torch': 'torch',
+        'spleeter': 'spleeter'
     }
     
     missing = []
@@ -1320,6 +470,11 @@ def check_imports():
         for item in missing:
             print(f"  - {item}")
         print("\nSome features may be limited.")
+        return False
+    return True
+
+# Run import check
+check_imports()
 
 # ========================================
 # Global constants and configuration

@@ -1,21 +1,93 @@
-/build
-/dist
-/.venv
-/*.notcapz
-/whispers
-/pretrained_models
-/Download.py
-/Download.spec
-/token.json
-/large-v3.pt
-/client.json
-/__pycache__
-/Build.bat
-/NotyCaption.exe
-/build_warnings.log
-/logs
-/NotyCaption Pro.spec
-/build_key.key
-/client.notycapz
-/secret-build-key.key
-/NotyCaption.spec
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+
+# Build artifacts
+build/
+dist/
+*.spec
+*.exe
+*.manifest
+*.pyd
+
+# Package directories
+package/
+release_*/
+*.egg-info/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs and temp
+logs/
+*.log
+*.tmp
+temp/
+*.temp.wav
+*.pyc
+
+# Configuration (keep example but ignore actual)
+client.json
+token.json
+*.notycapz
+*.notcapz
+settings.notcapz
+session.json
+
+# AI Models (large files - download on demand)
+models/
+*.pt
+*.pth
+pretrained_models/
+
+# Cache directories
+cache/
+__pycache__/
+*.cache
+
+# OS generated
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# User data
+Saves/
+logs/
+exports/
+monitoring/
+graphs/
+backups/
+
+# IDE specific
+.vscode/
+.idea/
+*.iml
+
+# Coverage reports
+.coverage
+htmlcov/
+
+# Distribution
+*.zip
+*.tar.gz
+*.exe
+!App.ico
+!Uninstaller.ico
+!Logo.ico
