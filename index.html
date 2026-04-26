@@ -210,10 +210,6 @@
             color: #00c853;
             margin-top: 10px;
         }
-        .error-msg {
-            color: #ff4081;
-            margin-top: 10px;
-        }
         @media (max-width: 768px) {
             .main-grid {
                 grid-template-columns: 1fr;
@@ -323,8 +319,7 @@
 
     <script src="config.js"></script>
     <script>
-        let currentSection = null;
-        
+        // SIMPLE LOGIN FUNCTION - NO COMPLEX LOGIC
         function loginWithGoogle() {
             console.log('🔐 Login button clicked!');
             const redirectUri = encodeURIComponent('https://notycaption.rf.gd/callback.html');
@@ -342,7 +337,6 @@
             const target = document.getElementById(`${section}Section`);
             if (target) target.style.display = 'block';
             window.location.hash = section;
-            currentSection = section;
         }
         
         function toggleFullscreen() {
@@ -356,9 +350,7 @@
                     gameContainer.webkitRequestFullscreen();
                 }
                 hint.style.opacity = '1';
-                setTimeout(() => {
-                    hint.style.opacity = '0';
-                }, 3000);
+                setTimeout(() => hint.style.opacity = '0', 3000);
             } else {
                 if (document.exitFullscreen) {
                     document.exitFullscreen();
@@ -371,15 +363,6 @@
         document.addEventListener('fullscreenchange', () => {
             const btn = document.querySelector('.fullscreen-btn');
             if (document.fullscreenElement || document.webkitFullscreenElement) {
-                if (btn) btn.innerHTML = '✕ Exit Fullscreen';
-            } else {
-                if (btn) btn.innerHTML = '⛶ Fullscreen';
-            }
-        });
-        
-        document.addEventListener('webkitfullscreenchange', () => {
-            const btn = document.querySelector('.fullscreen-btn');
-            if (document.webkitFullscreenElement) {
                 if (btn) btn.innerHTML = '✕ Exit Fullscreen';
             } else {
                 if (btn) btn.innerHTML = '⛶ Fullscreen';

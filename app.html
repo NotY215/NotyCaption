@@ -153,42 +153,27 @@
 
 <script src="config.js"></script>
 <script>
-    // ========================================
-    // CHECK LOGIN STATUS - NO DATA CLEARING!
-    // ========================================
+    // Check if user is logged in by checking localStorage
     function isLoggedIn() {
         let token = localStorage.getItem('notycaption_access_token');
         let expiry = localStorage.getItem('notycaption_token_expiry');
         
-        console.log('Checking login - Token:', token ? 'Present' : 'Missing');
-        console.log('Expiry:', expiry, 'Current time:', Date.now());
-        
-        if (!token) {
-            // Try to get from cookies as fallback
-            const cookies = document.cookie.split(';');
-            for (let cookie of cookies) {
-                const [name, value] = cookie.trim().split('=');
-                if (name === 'notycaption_access_token') {
-                    token = decodeURIComponent(value);
-                    localStorage.setItem('notycaption_access_token', token);
-                    console.log('Token restored from cookie');
-                    break;
-                }
-            }
-        }
+        console.log('Checking login - Token:', token ? 'Yes' : 'No');
         
         if (!token) return false;
         if (expiry && Date.now() > parseInt(expiry)) return false;
         return true;
     }
     
-    // Redirect to index.html if NOT logged in
+    // If NOT logged in, redirect to index.html
     if (!isLoggedIn()) {
         console.log('Not logged in, redirecting to index.html');
-        window.location.replace('index.html');
+        window.location.href = 'index.html';
+        // Stop execution
+        throw new Error('Redirecting to login');
     }
     
-    // Load user info from storage
+    // Load user info
     function loadUserInfo() {
         let userInfo = localStorage.getItem('notycaption_user_info');
         if (userInfo) {
@@ -199,9 +184,11 @@
                 document.getElementById('userEmail').textContent = user.email || '';
                 document.getElementById('userInfo').style.display = 'inline-flex';
                 console.log('User info loaded:', user.name);
-            } catch(e) {}
+            } catch(e) {
+                console.error('Error parsing user info:', e);
+            }
         } else {
-            // Fetch user info from Google
+            // Try to fetch user info
             const token = localStorage.getItem('notycaption_access_token');
             if (token) {
                 fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -223,7 +210,7 @@
         }
     }
     
-    // Logout function - clears all data
+    // Logout function
     function logout() {
         console.log('Logging out...');
         localStorage.clear();
@@ -231,7 +218,7 @@
         document.cookie.split(';').forEach(c => {
             document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
         });
-        window.location.replace('index.html');
+        window.location.href = 'index.html';
     }
     
     loadUserInfo();

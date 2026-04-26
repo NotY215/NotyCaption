@@ -50,6 +50,7 @@
         async function processCallback() {
             const messageEl = document.getElementById('message');
             
+            // Get the token from URL hash
             let hash = window.location.hash.substring(1);
             if (!hash && window.location.search) {
                 hash = window.location.search.substring(1);
@@ -59,7 +60,9 @@
             
             if (!hash) {
                 messageEl.innerHTML = '<span class="error">❌ No authentication data found</span>';
-                setTimeout(() => window.location.replace('index.html'), 2000);
+                setTimeout(() => {
+                    window.location.href = 'index.html';
+                }, 2000);
                 return;
             }
             
@@ -70,25 +73,23 @@
             
             if (error) {
                 messageEl.innerHTML = `<span class="error">❌ Login Error: ${decodeURIComponent(error)}</span>`;
-                setTimeout(() => window.location.replace('index.html'), 3000);
+                setTimeout(() => {
+                    window.location.href = 'index.html';
+                }, 3000);
                 return;
             }
             
             if (access_token && expires_in) {
                 messageEl.innerHTML = '✅ Authentication successful!<br>Saving your session...';
                 
-                // Calculate expiry time (session will expire after expires_in seconds)
-                const expiryTime = Date.now() + (parseInt(expires_in) * 1000);
-                
-                // Save to localStorage (persists until browser data is cleared)
+                // Save to localStorage
                 localStorage.setItem('notycaption_access_token', access_token);
-                localStorage.setItem('notycaption_token_expiry', expiryTime.toString());
+                localStorage.setItem('notycaption_token_expiry', (Date.now() + (parseInt(expires_in) * 1000)).toString());
                 
-                // Save to session cookies (will be cleared when browser closes)
+                // Save to cookies
                 document.cookie = `notycaption_access_token=${access_token};path=/;max-age=${parseInt(expires_in)}`;
-                document.cookie = `notycaption_token_expiry=${expiryTime};path=/;max-age=${parseInt(expires_in)}`;
+                document.cookie = `notycaption_token_expiry=${Date.now() + (parseInt(expires_in) * 1000)};path=/;max-age=${parseInt(expires_in)}`;
                 
-                console.log('Token saved, expiry:', new Date(expiryTime));
                 messageEl.innerHTML = '✅ Token saved!<br>Fetching your profile...';
                 
                 try {
@@ -101,29 +102,30 @@
                         localStorage.setItem('notycaption_user_info', JSON.stringify(userInfo));
                         document.cookie = `notycaption_user_info=${JSON.stringify(userInfo)};path=/;max-age=${parseInt(expires_in)}`;
                         
-                        console.log('User info saved:', userInfo.name);
                         messageEl.innerHTML = `<span class="success">✅ Welcome, ${userInfo.name || 'User'}!</span><br>Email: ${userInfo.email}<br>Redirecting to app...`;
                         
-                        // Redirect to app.html - data is now saved
+                        // Redirect to app.html
                         setTimeout(() => {
-                            window.location.replace('app.html');
+                            window.location.href = 'app.html';
                         }, 1500);
                     } else {
                         messageEl.innerHTML = '<span class="error">⚠️ Could not fetch profile</span>';
                         setTimeout(() => {
-                            window.location.replace('app.html');
+                            window.location.href = 'app.html';
                         }, 1500);
                     }
                 } catch (err) {
                     console.error('Error:', err);
                     messageEl.innerHTML = '<span class="error">⚠️ Profile fetch failed</span>';
                     setTimeout(() => {
-                        window.location.replace('app.html');
+                        window.location.href = 'app.html';
                     }, 1500);
                 }
             } else {
                 messageEl.innerHTML = '<span class="error">❌ Invalid authentication response</span>';
-                setTimeout(() => window.location.replace('index.html'), 2000);
+                setTimeout(() => {
+                    window.location.href = 'index.html';
+                }, 2000);
             }
         }
         
