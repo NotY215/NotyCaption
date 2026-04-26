@@ -93,7 +93,7 @@
                 setCookie(STORAGE_KEYS.ACCESS_TOKEN, access_token, 7);
                 setCookie(STORAGE_KEYS.TOKEN_EXPIRY, (Date.now() + (parseInt(expires_in) * 1000)).toString(), 7);
                 
-                messageEl.innerHTML = '✅ Token saved!<br>Fetching your profile information...';
+                messageEl.innerHTML = '✅ Token saved!<br>Fetching your profile...';
                 
                 try {
                     const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {

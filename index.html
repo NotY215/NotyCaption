@@ -7,9 +7,8 @@
     <link rel="icon" type="image/x-icon" href="App.ico">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     
-    <!-- Load all modules in correct order -->
+    <!-- Load all modules -->
     <script src="config.js"></script>
-    <script src="auth.js"></script>
     <script src="drive.js"></script>
     <script src="ipynb.js"></script>
     <script src="colab.js"></script>
@@ -95,7 +94,7 @@
 <!-- HOME SECTION -->
 <div id="homeSection" class="container">
     <div class="auth-section" id="authSection">
-        <button class="google-btn" id="loginButton">🔐 Sign in with Google</button>
+        <button class="google-btn" id="googleSignInBtn">🔐 Sign in with Google</button>
     </div>
 
     <div id="mainApp" style="display:none">
@@ -210,18 +209,6 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- DEBUG PANEL -->
-<div class="debug-panel" id="debugPanel" style="display:none">
-    <h4>🔧 Debug Panel (Ctrl+Shift+D)</h4>
-    <div class="debug-row"><span class="debug-label">Token:</span> <span class="debug-value" id="debugToken">-</span></div>
-    <div class="debug-row"><span class="debug-label">User:</span> <span class="debug-value" id="debugUser">-</span></div>
-    <div class="debug-row"><span class="debug-label">Email:</span> <span class="debug-value" id="debugEmail">-</span></div>
-    <div class="debug-row"><span class="debug-label">Audio ID:</span> <span class="debug-value" id="debugAudioId">-</span></div>
-    <div class="debug-row"><span class="debug-label">Login Status:</span> <span class="debug-value" id="debugLoginStatus">-</span></div>
-    <button class="small" id="forceRefreshBtn">🔄 Force Refresh Auth</button>
-    <button class="small" id="clearDataBtn" style="background:#ff4081;margin-left:5px">🗑️ Clear All Data</button>
-</div>
-
 <script>
     // ========================================
     // GLOBAL VARIABLES
@@ -230,120 +217,184 @@
     let currentEnhancedFileUrl = null;
     let currentSubtitles = [];
     let isProcessing = false;
-    let authCheckInterval = null;
 
     // ========================================
-    // UI UPDATE FUNCTIONS (uses auth.js)
+    // STORAGE KEYS
     // ========================================
-    function updateUIBasedOnAuth() {
+    const STORAGE_KEYS = {
+        ACCESS_TOKEN: "notycaption_access_token",
+        TOKEN_EXPIRY: "notycaption_token_expiry",
+        USER_INFO: "notycaption_user_info",
+        SETTINGS: "notycaption_settings"
+    };
+
+    // ========================================
+    // COOKIE FUNCTIONS
+    // ========================================
+    function setCookie(name, value, days = 7) {
+        const expires = new Date();
+        expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+        document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires.toUTCString()};path=/;SameSite=Lax`;
+    }
+
+    function getCookie(name) {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+            const [cookieName, cookieValue] = cookie.trim().split('=');
+            if (cookieName === name) {
+                return decodeURIComponent(cookieValue);
+            }
+        }
+        return null;
+    }
+
+    function deleteCookie(name) {
+        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+    }
+
+    // ========================================
+    // AUTHENTICATION FUNCTIONS - WORKING!
+    // ========================================
+    function saveAuthData(token, expiresIn, userInfo) {
+        const expiryTime = Date.now() + (parseInt(expiresIn) * 1000);
+        
+        localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, token);
+        localStorage.setItem(STORAGE_KEYS.TOKEN_EXPIRY, expiryTime.toString());
+        if (userInfo) {
+            localStorage.setItem(STORAGE_KEYS.USER_INFO, JSON.stringify(userInfo));
+        }
+        
+        setCookie(STORAGE_KEYS.ACCESS_TOKEN, token, 7);
+        setCookie(STORAGE_KEYS.TOKEN_EXPIRY, expiryTime.toString(), 7);
+        if (userInfo) {
+            setCookie(STORAGE_KEYS.USER_INFO, JSON.stringify(userInfo), 7);
+        }
+        
+        console.log('✅ Auth data saved');
+        return true;
+    }
+
+    function isUserLoggedIn() {
+        let token = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+        let expiry = localStorage.getItem(STORAGE_KEYS.TOKEN_EXPIRY);
+        
+        if (!token) {
+            token = getCookie(STORAGE_KEYS.ACCESS_TOKEN);
+            expiry = getCookie(STORAGE_KEYS.TOKEN_EXPIRY);
+            if (token) {
+                localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, token);
+                localStorage.setItem(STORAGE_KEYS.TOKEN_EXPIRY, expiry);
+            }
+        }
+        
+        if (token && expiry && Date.now() < parseInt(expiry)) {
+            return true;
+        }
+        return false;
+    }
+
+    function getUserInfoFromStorage() {
+        let userInfo = localStorage.getItem(STORAGE_KEYS.USER_INFO);
+        if (userInfo) {
+            try {
+                return JSON.parse(userInfo);
+            } catch(e) {}
+        }
+        
+        const cookieUser = getCookie(STORAGE_KEYS.USER_INFO);
+        if (cookieUser) {
+            try {
+                const parsed = JSON.parse(cookieUser);
+                localStorage.setItem(STORAGE_KEYS.USER_INFO, cookieUser);
+                return parsed;
+            } catch(e) {}
+        }
+        return null;
+    }
+
+    // THE SIGN-IN FUNCTION - DIRECT CALL
+    function loginWithGoogle() {
+        console.log('🔐 SIGN IN BUTTON CLICKED - Redirecting to Google...');
+        
+        const redirectUri = encodeURIComponent('https://notycaption.rf.gd/callback.html');
+        const clientId = '129928120701-dt0asf2d5t8okuacmn7gmrpudumknhbt.apps.googleusercontent.com';
+        const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email');
+        
+        const authUrl = `https://accounts.google.com/o/oauth2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=${scope}&include_granted_scopes=true&prompt=select_account&state=notycaption_login`;
+        
+        console.log('Redirect URL:', authUrl);
+        window.location.href = authUrl;
+    }
+
+    function logout() {
+        console.log('🔓 Logging out...');
+        localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+        localStorage.removeItem(STORAGE_KEYS.TOKEN_EXPIRY);
+        localStorage.removeItem(STORAGE_KEYS.USER_INFO);
+        localStorage.removeItem(STORAGE_KEYS.SETTINGS);
+        deleteCookie(STORAGE_KEYS.ACCESS_TOKEN);
+        deleteCookie(STORAGE_KEYS.TOKEN_EXPIRY);
+        deleteCookie(STORAGE_KEYS.USER_INFO);
+        
+        currentAudioDriveId = null;
+        currentEnhancedFileUrl = null;
+        currentSubtitles = [];
+        updateUI();
+        showToast('✅ Logged out successfully');
+    }
+
+    // ========================================
+    // UI UPDATE FUNCTIONS
+    // ========================================
+    function updateUI() {
         const authSection = document.getElementById('authSection');
         const mainApp = document.getElementById('mainApp');
         
-        const isLoggedIn = typeof isAuthenticated === 'function' ? isAuthenticated() : false;
-        const userInfo = typeof getUserInfo === 'function' ? getUserInfo() : null;
+        const isLoggedIn = isUserLoggedIn();
+        const userInfo = getUserInfoFromStorage();
         
         console.log('🔄 Updating UI - Logged in:', isLoggedIn);
         
         if (isLoggedIn && userInfo) {
-            // Need to await userInfo if it's a promise
-            Promise.resolve(userInfo).then(info => {
-                if (info) {
-                    authSection.innerHTML = `
-                        <div class="user-info">
-                            <div class="user-avatar">${info.name ? info.name.charAt(0).toUpperCase() : 'U'}</div>
-                            <div>
-                                <strong>${info.name || 'User'}</strong><br>
-                                <small style="color: #aaa;">${info.email || ''}</small>
-                            </div>
-                            <button class="google-btn" onclick="logout()" style="padding: 8px 20px; margin: 0;">🚪 Logout</button>
-                        </div>
-                    `;
-                    mainApp.style.display = 'block';
-                    
-                    const enhanceBtn = document.getElementById('enhanceBtn');
-                    const generateBtn = document.getElementById('generateBtn');
-                    if (enhanceBtn) enhanceBtn.disabled = !currentAudioDriveId;
-                    if (generateBtn) generateBtn.disabled = !currentAudioDriveId;
-                    
-                    if (!window.toastShown) {
-                        window.toastShown = true;
-                        showToast(`✅ Welcome, ${info.name || 'User'}!`);
-                        setTimeout(() => { window.toastShown = false; }, 5000);
-                    }
-                }
-            });
+            authSection.innerHTML = `
+                <div class="user-info">
+                    <div class="user-avatar">${userInfo.name ? userInfo.name.charAt(0).toUpperCase() : 'U'}</div>
+                    <div>
+                        <strong>${userInfo.name || 'User'}</strong><br>
+                        <small style="color: #aaa;">${userInfo.email || ''}</small>
+                    </div>
+                    <button class="google-btn" id="logoutBtn" style="padding: 8px 20px; margin: 0;">🚪 Logout</button>
+                </div>
+            `;
+            mainApp.style.display = 'block';
+            
+            // Attach logout event
+            const logoutBtn = document.getElementById('logoutBtn');
+            if (logoutBtn) {
+                logoutBtn.onclick = logout;
+            }
+            
+            const enhanceBtn = document.getElementById('enhanceBtn');
+            const generateBtn = document.getElementById('generateBtn');
+            if (enhanceBtn) enhanceBtn.disabled = !currentAudioDriveId;
+            if (generateBtn) generateBtn.disabled = !currentAudioDriveId;
+            
+            if (!window.toastShown) {
+                window.toastShown = true;
+                showToast(`✅ Welcome, ${userInfo.name || 'User'}!`);
+                setTimeout(() => { window.toastShown = false; }, 5000);
+            }
         } else {
-            authSection.innerHTML = `<button class="google-btn" onclick="loginWithGoogle()">🔐 Sign in with Google</button>`;
+            authSection.innerHTML = `<button class="google-btn" id="googleSignInBtn">🔐 Sign in with Google</button>`;
             mainApp.style.display = 'none';
             
-            const audioPlayer = document.getElementById('audioPlayer');
-            const enhancedSection = document.getElementById('enhancedSection');
-            const captionsList = document.getElementById('captionsList');
-            const fileInfo = document.getElementById('fileInfo');
-            const exportBtn = document.getElementById('exportBtn');
-            
-            if (audioPlayer) audioPlayer.src = '';
-            if (enhancedSection) enhancedSection.style.display = 'none';
-            if (captionsList) captionsList.innerHTML = '<p style="color:#666;text-align:center">Please sign in to use NotyCaption Pro</p>';
-            if (fileInfo) fileInfo.innerHTML = 'No file loaded';
-            if (exportBtn) exportBtn.disabled = true;
-        }
-        
-        updateDebugPanel();
-    }
-
-    function forceRefreshAuth() {
-        console.log('🔄 Force refreshing auth...');
-        if (typeof loadSavedToken === 'function') {
-            loadSavedToken();
-        }
-        if (typeof getUserInfo === 'function') {
-            Promise.resolve(getUserInfo()).then(() => {
-                updateUIBasedOnAuth();
-            });
-        }
-        showToast('Auth refreshed');
-    }
-
-    function clearAllData() {
-        if (confirm('⚠️ This will clear all authentication data, settings, and uploaded files. Continue?')) {
-            localStorage.clear();
-            const cookies = document.cookie.split(';');
-            for (let cookie of cookies) {
-                const name = cookie.trim().split('=')[0];
-                document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+            // Re-attach login event to the new button
+            const newLoginBtn = document.getElementById('googleSignInBtn');
+            if (newLoginBtn) {
+                newLoginBtn.onclick = loginWithGoogle;
+                console.log('✅ Login button re-attached');
             }
-            sessionStorage.clear();
-            currentAudioDriveId = null;
-            currentEnhancedFileUrl = null;
-            currentSubtitles = [];
-            if (typeof clearToken === 'function') clearToken();
-            updateUIBasedOnAuth();
-            showToast('✅ All data cleared');
         }
-    }
-
-    // ========================================
-    // DEBUG PANEL
-    // ========================================
-    function updateDebugPanel() {
-        const token = localStorage.getItem('notycaption_access_token');
-        const userInfo = localStorage.getItem('notycaption_user_info');
-        let userName = 'None';
-        let userEmail = 'None';
-        if (userInfo) {
-            try {
-                const parsed = JSON.parse(userInfo);
-                userName = parsed.name || 'None';
-                userEmail = parsed.email || 'None';
-            } catch(e) {}
-        }
-        
-        document.getElementById('debugToken').innerText = token ? token.substring(0, 30) + '...' : '❌ None';
-        document.getElementById('debugUser').innerText = userName;
-        document.getElementById('debugEmail').innerText = userEmail;
-        document.getElementById('debugAudioId').innerText = currentAudioDriveId ? currentAudioDriveId.substring(0, 20) + '...' : '❌ None';
-        document.getElementById('debugLoginStatus').innerText = token ? '✅ Logged In' : '❌ Not Logged In';
     }
 
     // ========================================
@@ -379,6 +430,44 @@
     }
 
     // ========================================
+    // CHECK URL FOR TOKEN AFTER CALLBACK
+    // ========================================
+    function checkAndProcessToken() {
+        const hash = window.location.hash.substring(1);
+        if (hash && hash.includes('access_token')) {
+            console.log('🔑 Token found in URL!');
+            const params = new URLSearchParams(hash);
+            const token = params.get('access_token');
+            const expiresIn = params.get('expires_in');
+            
+            if (token && expiresIn) {
+                saveAuthData(token, expiresIn, null);
+                
+                // Fetch user info
+                fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                })
+                .then(res => res.json())
+                .then(userInfo => {
+                    if (userInfo && userInfo.email) {
+                        localStorage.setItem(STORAGE_KEYS.USER_INFO, JSON.stringify(userInfo));
+                        setCookie(STORAGE_KEYS.USER_INFO, JSON.stringify(userInfo), 7);
+                        console.log('User info saved:', userInfo.name);
+                    }
+                })
+                .catch(err => console.error('Error fetching user info:', err))
+                .finally(() => {
+                    window.location.hash = 'home';
+                    showToast('✅ Login successful! Redirecting...');
+                    setTimeout(() => window.location.reload(), 500);
+                });
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ========================================
     // FILE UPLOAD FUNCTION
     // ========================================
     async function handleFileUpload(file) {
@@ -389,7 +478,7 @@
         const isAudio = allowedExtensions.includes(fileExtension);
         
         if (!isAudio) {
-            showToast('❌ Please upload only audio files (MP3, WAV, M4A, FLAC, OGG, AAC)', true);
+            showToast('❌ Please upload only audio files', true);
             return;
         }
         
@@ -400,35 +489,22 @@
         
         const audioPlayer = document.getElementById('audioPlayer');
         const fileInfo = document.getElementById('fileInfo');
-        const captionsList = document.getElementById('captionsList');
-        const exportBtn = document.getElementById('exportBtn');
         
         currentAudioDriveId = null;
-        currentEnhancedFileUrl = null;
-        currentSubtitles = [];
-        document.getElementById('enhancedSection').style.display = 'none';
-        if (captionsList) captionsList.innerHTML = '<p style="color:#666;text-align:center">⏳ Uploading audio to Google Drive...</p>';
-        if (exportBtn) exportBtn.disabled = true;
-        
         audioPlayer.src = URL.createObjectURL(file);
-        fileInfo.innerHTML = `📄 ${file.name} - Uploading to Google Drive...`;
+        fileInfo.innerHTML = `📄 ${file.name} - Uploading...`;
         
         showProgress(true, 'Uploading to Google Drive...', 30);
         
         try {
-            const isLoggedIn = typeof isAuthenticated === 'function' ? isAuthenticated() : false;
-            if (!isLoggedIn) {
-                showToast('❌ Please sign in with Google first', true);
+            if (!isUserLoggedIn()) {
+                showToast('❌ Please sign in first', true);
                 showProgress(false);
-                fileInfo.innerHTML = `📄 ${file.name} - ❌ Please sign in first`;
                 return;
             }
             
-            let token = localStorage.getItem('notycaption_access_token');
-            if (!token) {
-                token = typeof getAccessToken === 'function' ? getAccessToken() : null;
-            }
-            
+            let token = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+            if (!token) token = getCookie(STORAGE_KEYS.ACCESS_TOKEN);
             if (!token) throw new Error('Authentication failed');
             
             const formData = new FormData();
@@ -447,23 +523,17 @@
             const uploadData = await uploadResponse.json();
             currentAudioDriveId = uploadData.id;
             
-            fileInfo.innerHTML = `📄 ${file.name} - ✅ Uploaded to Google Drive`;
+            fileInfo.innerHTML = `📄 ${file.name} - ✅ Uploaded`;
             showProgress(false);
-            showToast('✅ Audio uploaded! Click "Generate Captions" to start AI processing.');
+            showToast('✅ Audio uploaded! Click "Generate Captions"');
             
-            const generateBtn = document.getElementById('generateBtn');
-            const enhanceBtn = document.getElementById('enhanceBtn');
-            if (generateBtn) generateBtn.disabled = false;
-            if (enhanceBtn) enhanceBtn.disabled = false;
-            
-            if (captionsList) captionsList.innerHTML = '<p style="color:#666;text-align:center">✅ Audio uploaded!<br>Click "Generate AI Captions" to start processing</p>';
+            document.getElementById('generateBtn').disabled = false;
+            document.getElementById('enhanceBtn').disabled = false;
             
         } catch (err) {
-            console.error('Upload error:', err);
             showProgress(false);
             showToast('❌ Upload failed: ' + err.message, true);
-            fileInfo.innerHTML = `📄 ${file.name} - ❌ Upload failed`;
-            audioPlayer.src = '';
+            fileInfo.innerHTML = `📄 ${file.name} - ❌ Failed`;
         }
     }
 
@@ -472,28 +542,12 @@
     // ========================================
     async function generateCaptions() {
         if (!currentAudioDriveId) {
-            showToast('❌ Please upload an audio file first', true);
+            showToast('❌ Please upload audio first', true);
             return;
         }
-        
-        if (isProcessing) {
-            showToast('⏳ Already processing, please wait...', true);
-            return;
-        }
-        
-        const isLoggedIn = typeof isAuthenticated === 'function' ? isAuthenticated() : false;
-        if (!isLoggedIn) {
-            showToast('❌ Please sign in with Google first', true);
-            return;
-        }
-        
-        if (typeof getNotebookContent === 'undefined') {
-            showToast('❌ Error: ipynb.js not loaded. Please refresh the page.', true);
-            return;
-        }
-        
-        if (typeof createAndOpenColabNotebook === 'undefined') {
-            showToast('❌ Error: colab.js not loaded. Please refresh the page.', true);
+        if (isProcessing) return;
+        if (!isUserLoggedIn()) {
+            showToast('❌ Please sign in first', true);
             return;
         }
         
@@ -502,236 +556,155 @@
         const wordsPerLine = document.getElementById('wordsPerLine').value;
         const outputFormat = document.getElementById('outputFormat').value;
         
-        showModal('🎬 Generating AI Captions', `Processing with Whisper AI...\nLanguage: ${language === 'auto' ? 'Auto Detect' : language}\nThis may take a few minutes.`);
-        showProgress(true, 'Preparing Colab notebook...', 10);
+        showModal('Generating Captions', `Processing with Whisper AI...\nLanguage: ${language}`);
+        showProgress(true, 'Preparing Colab...', 10);
         
         try {
-            const operationId = await createAndOpenColabNotebook('generate', {
+            if (typeof createAndOpenColabNotebook === 'undefined') {
+                throw new Error('Colab module not loaded');
+            }
+            
+            await createAndOpenColabNotebook('generate', {
                 audioId: currentAudioDriveId,
                 language: language,
                 wordsPerLine: wordsPerLine,
                 outputFormat: outputFormat
             }, 
             async (fileId, fileName) => {
-                console.log('✅ Processing complete! File ID:', fileId);
-                showProgress(true, 'Downloading captions...', 95);
-                
                 try {
-                    const token = localStorage.getItem('notycaption_access_token');
-                    if (!token) throw new Error('Authentication failed');
-                    
+                    const token = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
                     const fileResponse = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
                         headers: { 'Authorization': `Bearer ${token}` }
                     });
-                    
-                    if (!fileResponse.ok) throw new Error('Failed to download captions');
-                    
                     const content = await fileResponse.text();
                     displayCaptions(content, fileName);
-                    
                     showProgress(false);
                     closeModal();
-                    showToast('✅ Captions generated successfully!');
-                    isProcessing = false;
-                    
-                } catch (error) {
-                    console.error('Download error:', error);
-                    showToast('❌ Failed to download captions: ' + error.message, true);
-                    showProgress(false);
-                    closeModal();
-                    isProcessing = false;
+                    showToast('✅ Captions generated!');
+                } catch (err) {
+                    showToast('❌ Download failed', true);
                 }
+                isProcessing = false;
             },
             (error) => {
-                console.error('Processing error:', error);
-                showToast('❌ Failed to process: ' + error, true);
+                showToast('❌ Failed: ' + error, true);
                 showProgress(false);
                 closeModal();
                 isProcessing = false;
             });
             
-            if (!operationId) throw new Error('Failed to create Colab notebook');
-            
-            showProgress(true, 'Opening Google Colab...', 60);
-            showToast('📓 Colab notebook opened! Click "Run All" to start processing.', false);
+            showProgress(true, 'Opening Colab...', 60);
             
         } catch (error) {
-            console.error('Generation error:', error);
-            showToast('❌ Failed: ' + error.message, true);
+            showToast('❌ Error: ' + error.message, true);
             isProcessing = false;
             showProgress(false);
             closeModal();
         }
     }
 
-    // ========================================
-    // VOCAL ENHANCEMENT
-    // ========================================
     async function enhanceAudio() {
         if (!currentAudioDriveId) {
-            showToast('❌ Please upload an audio file first', true);
+            showToast('❌ Please upload audio first', true);
             return;
         }
-        
-        if (isProcessing) {
-            showToast('⏳ Already processing, please wait...', true);
-            return;
-        }
-        
-        const isLoggedIn = typeof isAuthenticated === 'function' ? isAuthenticated() : false;
-        if (!isLoggedIn) {
-            showToast('❌ Please sign in with Google first', true);
-            return;
-        }
-        
-        if (typeof createAndOpenColabNotebook === 'undefined') {
-            showToast('❌ Error: colab.js not loaded. Please refresh the page.', true);
+        if (isProcessing) return;
+        if (!isUserLoggedIn()) {
+            showToast('❌ Please sign in first', true);
             return;
         }
         
         isProcessing = true;
-        showModal('🎤 Vocal Enhancement', 'Extracting vocals with Spleeter AI...\nThis may take a few minutes.');
-        showProgress(true, 'Preparing vocal extraction...', 10);
+        showModal('Vocal Enhancement', 'Extracting vocals with Spleeter...');
+        showProgress(true, 'Preparing...', 10);
         
         try {
-            const operationId = await createAndOpenColabNotebook('enhance', {
-                audioId: currentAudioDriveId
-            },
+            if (typeof createAndOpenColabNotebook === 'undefined') {
+                throw new Error('Colab module not loaded');
+            }
+            
+            await createAndOpenColabNotebook('enhance', { audioId: currentAudioDriveId },
             async (fileId, fileName) => {
-                console.log('✅ Vocal extraction complete! File ID:', fileId);
-                showProgress(true, 'Downloading enhanced audio...', 90);
-                
-                try {
-                    const token = localStorage.getItem('notycaption_access_token');
-                    const downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&access_token=${token}`;
-                    currentEnhancedFileUrl = downloadUrl;
-                    
-                    const enhancedPlayer = document.getElementById('enhancedPlayer');
-                    const enhancedSection = document.getElementById('enhancedSection');
-                    
-                    if (enhancedPlayer) enhancedPlayer.src = downloadUrl;
-                    if (enhancedSection) enhancedSection.style.display = 'block';
-                    
-                    showProgress(false);
-                    closeModal();
-                    showToast('✅ Vocal extraction complete! Enhanced audio ready.');
-                    isProcessing = false;
-                    
-                } catch (error) {
-                    console.error('Download error:', error);
-                    showToast('❌ Failed to load enhanced audio', true);
-                    showProgress(false);
-                    closeModal();
-                    isProcessing = false;
-                }
+                const token = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+                currentEnhancedFileUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&access_token=${token}`;
+                document.getElementById('enhancedPlayer').src = currentEnhancedFileUrl;
+                document.getElementById('enhancedSection').style.display = 'block';
+                showProgress(false);
+                closeModal();
+                showToast('✅ Vocal extraction complete!');
+                isProcessing = false;
             },
             (error) => {
-                console.error('Enhancement error:', error);
-                showToast('❌ Failed to extract vocals: ' + error, true);
+                showToast('❌ Failed: ' + error, true);
                 showProgress(false);
                 closeModal();
                 isProcessing = false;
             });
             
-            if (!operationId) throw new Error('Failed to create Colab notebook');
-            
-            showProgress(true, 'Opening Google Colab...', 60);
-            showToast('📓 Colab notebook opened! Click "Run All" to start vocal extraction.', false);
-            
         } catch (error) {
-            console.error('Enhancement error:', error);
-            showToast('❌ Failed: ' + error.message, true);
+            showToast('❌ Error: ' + error.message, true);
             isProcessing = false;
             showProgress(false);
             closeModal();
         }
     }
 
-    // ========================================
-    // DISPLAY AND EXPORT CAPTIONS
-    // ========================================
     function displayCaptions(content, filename) {
         const container = document.getElementById('captionsList');
-        if (!container) return;
-        
         container.innerHTML = '';
         currentSubtitles = [];
         
-        if (filename.endsWith('.srt')) {
-            const blocks = content.trim().split(/\n\s*\n/);
-            blocks.forEach(block => {
-                const lines = block.split('\n');
-                if (lines.length >= 3) {
-                    let timeMatch = lines[1].match(/(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})/);
-                    if (!timeMatch) {
-                        timeMatch = lines[1].match(/(\d{2}:\d{2}:\d{2}\.\d{3}) --> (\d{2}:\d{2}:\d{2}\.\d{3})/);
-                    }
-                    if (timeMatch) {
-                        currentSubtitles.push({
-                            start: timeMatch[1],
-                            end: timeMatch[2],
-                            text: lines.slice(2).join('\n')
-                        });
-                    }
+        const blocks = content.trim().split(/\n\s*\n/);
+        blocks.forEach(block => {
+            const lines = block.split('\n');
+            if (lines.length >= 3) {
+                const timeMatch = lines[1].match(/(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})/);
+                if (timeMatch) {
+                    currentSubtitles.push({
+                        start: timeMatch[1],
+                        end: timeMatch[2],
+                        text: lines.slice(2).join('\n')
+                    });
                 }
-            });
-        }
-        
-        if (currentSubtitles.length === 0) {
-            container.innerHTML = '<p style="color:#666;text-align:center">⚠️ No captions were generated.<br>Please check the Colab notebook for errors.</p>';
-            return;
-        }
+            }
+        });
         
         currentSubtitles.forEach((sub, i) => {
             const div = document.createElement('div');
             div.className = 'caption-line';
-            div.innerHTML = `<span style="color:#00e5ff">${sub.start} → ${sub.end}</span><br>${escapeHtml(sub.text.substring(0, 150))}${sub.text.length > 150 ? '...' : ''}`;
+            div.innerHTML = `<span style="color:#00e5ff">${sub.start} → ${sub.end}</span><br>${sub.text.substring(0, 100)}`;
             div.onclick = () => {
-                let timeStr = sub.start.replace(',', '.');
-                const parts = timeStr.split(':');
-                let seconds = 0;
-                if (parts.length === 3) {
-                    seconds = parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + parseFloat(parts[2]);
-                }
-                const audioPlayer = document.getElementById('audioPlayer');
-                if (audioPlayer && !isNaN(seconds)) {
-                    audioPlayer.currentTime = seconds;
-                    audioPlayer.play();
-                }
+                const parts = sub.start.replace(',', '.').split(':');
+                const seconds = parseInt(parts[0])*3600 + parseInt(parts[1])*60 + parseFloat(parts[2]);
+                document.getElementById('audioPlayer').currentTime = seconds;
                 document.querySelectorAll('.caption-line').forEach(el => el.classList.remove('active'));
                 div.classList.add('active');
             };
             container.appendChild(div);
         });
         
-        const exportBtn = document.getElementById('exportBtn');
-        if (exportBtn) exportBtn.disabled = false;
-        showToast(`✅ ${currentSubtitles.length} captions loaded! Click on any caption to jump to that time.`);
+        document.getElementById('exportBtn').disabled = false;
+        showToast(`✅ ${currentSubtitles.length} captions loaded!`);
     }
 
     function exportCaptions() {
         if (!currentSubtitles.length) {
-            showToast('No captions to export', true);
+            showToast('No captions', true);
             return;
         }
         
         const format = document.getElementById('outputFormat').value;
-        let content = '';
+        let content = format === 'srt' 
+            ? currentSubtitles.map((s,i) => `${i+1}\n${s.start} --> ${s.end}\n${s.text}\n`).join('\n')
+            : `[Script Info]\nTitle=Subtitles\n\n[Events]\nFormat: Layer, Start, End, Text\n` + 
+              currentSubtitles.map(s => `Dialogue: 0,${s.start},${s.end},Default,,0,0,0,,${s.text.replace(/\n/g,'\\N')}\n`).join('');
         
-        if (format === 'srt') {
-            content = currentSubtitles.map((s, i) => `${i+1}\n${s.start} --> ${s.end}\n${s.text}\n`).join('\n');
-        } else {
-            content = `[Script Info]\nTitle=NotyCaption Subtitles\n\n[Events]\nFormat: Layer, Start, End, Text\n` +
-                      currentSubtitles.map(s => `Dialogue: 0,${s.start},${s.end},Default,,0,0,0,,${s.text.replace(/\n/g, '\\N')}\n`).join('');
-        }
-        
-        const blob = new Blob([content], { type: 'text/plain' });
+        const blob = new Blob([content], {type:'text/plain'});
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
         a.download = `captions.${format}`;
         a.click();
-        URL.revokeObjectURL(a.href);
-        showToast('✅ Captions exported!');
+        showToast('✅ Exported!');
     }
 
     function downloadEnhancedAudio() {
@@ -740,16 +713,8 @@
             a.href = currentEnhancedFileUrl;
             a.download = 'enhanced_vocals.wav';
             a.click();
-            showToast('Downloading enhanced audio...');
-        } else {
-            showToast('No enhanced audio available', true);
+            showToast('Downloading...');
         }
-    }
-
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
     }
 
     // ========================================
@@ -761,17 +726,17 @@
         
         for (let i = 0; i < pages.length; i++) {
             try {
-                const resp = await fetch(pages[i] + '?t=' + Date.now());
+                const resp = await fetch(pages[i]);
                 const targetEl = document.getElementById(targets[i]);
                 if (resp.ok && targetEl) {
                     targetEl.innerHTML = await resp.text();
                 } else if (targetEl) {
-                    targetEl.innerHTML = '<div style="text-align:center;padding:40px"><p>Content not found</p><a href="#home" style="color:#00e5ff">← Back to Home</a></div>';
+                    targetEl.innerHTML = '<p>Content not found</p><a href="#home">← Back</a>';
                 }
             } catch(e) {
                 const targetEl = document.getElementById(targets[i]);
                 if (targetEl) {
-                    targetEl.innerHTML = '<div style="text-align:center;padding:40px"><p>Content not found</p><a href="#home" style="color:#00e5ff">← Back to Home</a></div>';
+                    targetEl.innerHTML = '<p>Content not found</p><a href="#home">← Back</a>';
                 }
             }
         }
@@ -779,13 +744,8 @@
         document.getElementById('contactContent').innerHTML = `
             <div style="text-align:center;padding:40px;">
                 <h2>📞 Contact NotY215</h2>
-                <p style="margin:20px 0">For support, questions, or feedback:</p>
-                <div style="background:rgba(255,255,255,0.05);padding:30px;border-radius:20px;display:inline-block;text-align:left;">
-                    <p>🐙 <strong>GitHub:</strong> <a href="https://github.com/NotY215" style="color:#00e5ff;">https://github.com/NotY215</a></p>
-                    <p>📧 <strong>Email:</strong> <a href="mailto:NotY215@outlook.com" style="color:#00e5ff;">NotY215@outlook.com</a></p>
-                    <p>📺 <strong>YouTube:</strong> <a href="https://www.youtube.com/@NotY215" style="color:#00e5ff;">@NotY215</a></p>
-                    <p>💬 <strong>Telegram:</strong> <a href="https://t.me/Noty_215" style="color:#00e5ff;">@Noty_215</a></p>
-                </div>
+                <p>GitHub: <a href="https://github.com/NotY215">NotY215</a></p>
+                <p>Email: NotY215@outlook.com</p>
             </div>
         `;
     }
@@ -793,25 +753,19 @@
     function hashRouter() {
         const hash = window.location.hash.substring(1) || 'home';
         const sections = ['home', 'about', 'policies', 'terms', 'contact'];
-        
-        sections.forEach(section => {
-            const el = document.getElementById(`${section}Section`);
-            if (el) el.style.display = section === hash ? 'block' : 'none';
+        sections.forEach(s => {
+            const el = document.getElementById(`${s}Section`);
+            if (el) el.style.display = s === hash ? 'block' : 'none';
         });
-        
         document.querySelectorAll('.nav-links a').forEach(link => {
             const section = link.getAttribute('data-section');
             if (section === hash) link.classList.add('active');
             else link.classList.remove('active');
         });
-        
-        if (hash === 'home') setTimeout(() => updateUIBasedOnAuth(), 100);
     }
 
     function setupDragAndDrop() {
         const area = document.getElementById('uploadArea');
-        if (!area) return;
-        
         area.addEventListener('click', () => document.getElementById('audioFile').click());
         area.addEventListener('dragover', e => { e.preventDefault(); area.classList.add('drag-over'); });
         area.addEventListener('dragleave', () => area.classList.remove('drag-over'));
@@ -819,16 +773,16 @@
             e.preventDefault();
             area.classList.remove('drag-over');
             const file = e.dataTransfer.files[0];
-            if (file && (file.type.startsWith('audio/') || /\.(mp3|wav|m4a|flac|ogg|aac|webm)$/i.test(file.name))) {
+            if (file && /\.(mp3|wav|m4a|flac|ogg|aac|webm)$/i.test(file.name)) {
                 handleFileUpload(file);
             } else {
-                showToast('Please drop an audio file (MP3, WAV, M4A, FLAC, OGG, AAC)', true);
+                showToast('Please drop an audio file', true);
             }
         });
     }
 
     function loadSettings() {
-        const saved = localStorage.getItem('notycaption_settings');
+        const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
         if (saved) {
             try {
                 const settings = JSON.parse(saved);
@@ -840,7 +794,7 @@
     }
 
     function saveSettings() {
-        localStorage.setItem('notycaption_settings', JSON.stringify({
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify({
             wordsPerLine: document.getElementById('wordsPerLine').value,
             outputFormat: document.getElementById('outputFormat').value,
             language: document.getElementById('languageSelect').value
@@ -852,7 +806,12 @@
     // ========================================
     async function initialize() {
         console.log('🚀 Initializing NotyCaption Pro...');
-        console.log('Current URL:', window.location.href);
+        
+        // Check for token in URL first
+        if (checkAndProcessToken()) {
+            console.log('Token detected, processing...');
+            return;
+        }
         
         setupDragAndDrop();
         await loadExternalContent();
@@ -894,32 +853,25 @@
         const closeModalBtn = document.getElementById('closeModalBtn');
         if (closeModalBtn) closeModalBtn.onclick = closeModal;
         
-        const forceRefreshBtn = document.getElementById('forceRefreshBtn');
-        if (forceRefreshBtn) forceRefreshBtn.onclick = forceRefreshAuth;
-        
-        const clearDataBtn = document.getElementById('clearDataBtn');
-        if (clearDataBtn) clearDataBtn.onclick = clearAllData;
-        
-        // Initialize auth and update UI
-        if (typeof initAuth === 'function') {
-            await initAuth();
+        // ATTACH LOGIN BUTTON EVENT - THIS IS THE KEY FIX!
+        const loginBtn = document.getElementById('googleSignInBtn');
+        if (loginBtn) {
+            loginBtn.onclick = loginWithGoogle;
+            console.log('✅ Login button attached successfully!');
+        } else {
+            console.error('❌ Login button not found!');
         }
         
-        updateUIBasedOnAuth();
+        // Update UI
+        updateUI();
         hashRouter();
         
         // Periodic auth check
-        authCheckInterval = setInterval(() => {
-            updateUIBasedOnAuth();
-        }, 3000);
-        
-        // Debug panel toggle (Ctrl+Shift+D)
-        document.addEventListener('keydown', (e) => {
-            if (e.ctrlKey && e.shiftKey && e.key === 'D') {
-                const panel = document.getElementById('debugPanel');
-                if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        setInterval(() => {
+            if (isUserLoggedIn() && !getUserInfoFromStorage()) {
+                updateUI();
             }
-        });
+        }, 3000);
         
         console.log('✅ App initialized successfully');
     }
