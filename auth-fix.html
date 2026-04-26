@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NotyCaption - Auth Test</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #0f0c29;
+            color: #fff;
+            padding: 20px;
+        }
+        .status {
+            background: rgba(0,0,0,0.5);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+        .success { border-left: 4px solid #00c853; }
+        .error { border-left: 4px solid #ff4081; }
+        .info { border-left: 4px solid #00e5ff; }
+        button {
+            background: linear-gradient(90deg, #4285f4, #34a853);
+            border: none;
+            padding: 12px 25px;
+            border-radius: 25px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button.danger {
+            background: linear-gradient(90deg, #ff4081, #ff6b6b);
+        }
+        button.warning {
+            background: linear-gradient(90deg, #ff9800, #ffc107);
+        }
+        pre {
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .config-info {
+            background: rgba(0,229,255,0.1);
+            border: 1px solid #00e5ff;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .config-info h4 {
+            color: #00e5ff;
+            margin: 0 0 10px 0;
+        }
+        hr {
+            border-color: rgba(255,255,255,0.1);
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔐 NotyCaption Authentication Test</h1>
+    
+    <div class="config-info">
+        <h4>📋 Using config.js</h4>
+        <pre id="configDisplay">Loading config...</pre>
+    </div>
+    
+    <div id="status" class="status info">Checking authentication status...</div>
+    
+    <div>
+        <button onclick="testLogin()">🔐 Login with Google</button>
+        <button onclick="testLogout()">🚪 Logout</button>
+        <button onclick="testCheckStatus()">📊 Check Status</button>
+        <button onclick="testClearAll()" class="danger">🗑️ Clear All Data</button>
+        <button onclick="testReloadConfig()" class="warning">🔄 Reload Config</button>
+    </div>
+    
+    <hr>
+    
+    <div id="details" style="margin-top: 20px;">
+        <h3>📋 Storage Contents:</h3>
+        <pre id="storageInfo">Loading...</pre>
+    </div>
+    
+    <div id="tokenInfo" style="margin-top: 20px;">
+        <h3>🔑 Token Info:</h3>
+        <pre id="tokenInfoPre">None</pre>
+    </div>
+    
+    <div id="userInfo" style="margin-top: 20px;">
+        <h3>👤 User Info:</h3>
+        <pre id="userInfoPre">None</pre>
+    </div>
+    
+    <div id="cookieInfo" style="margin-top: 20px;">
+        <h3>🍪 Cookie Info:</h3>
+        <pre id="cookieInfoPre">None</pre>
+    </div>
+    
+    <script src="config.js"></script>
+    <script>
+        // STORAGE KEYS (matching config.js)
+        const STORAGE_KEYS = {
+            ACCESS_TOKEN: "notycaption_access_token",
+            TOKEN_EXPIRY: "notycaption_token_expiry",
+            USER_INFO: "notycaption_user_info",
+            SETTINGS: "notycaption_settings"
+        };
+        
+        let accessToken = null;
+        let tokenExpiry = null;
+        let userInfo = null;
+        
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = message;
+            statusDiv.className = `status ${type}`;
+        }
+        
+        // Cookie management functions
+        function setCookie(name, value, days = 7) {
+            const expires = new Date();
+            expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+            document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires.toUTCString()};path=/;SameSite=Lax`;
+        }
+        
+        function getCookie(name) {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [cookieName, cookieValue] = cookie.trim().split('=');
+                if (cookieName === name) {
+                    return decodeURIComponent(cookieValue);
+                }
+            }
+            return null;
+        }
+        
+        function deleteCookie(name) {
+            document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+        }
+        
+        function saveToken(token, expirySeconds = 3600) {
+            accessToken = token;
+            tokenExpiry = Date.now() + (expirySeconds * 1000);
+            
+            // Save to localStorage
+            localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, token);
+            localStorage.setItem(STORAGE_KEYS.TOKEN_EXPIRY, tokenExpiry.toString());
+            
+            // Save to cookies as backup
+            setCookie(STORAGE_KEYS.ACCESS_TOKEN, token, 7);
+            setCookie(STORAGE_KEYS.TOKEN_EXPIRY, tokenExpiry.toString(), 7);
+            
+            showStatus('✅ Token saved successfully!', 'success');
+            updateStorageInfo();
+            updateTokenInfo();
+            updateCookieInfo();
+            return true;
+        }
+        
+        function loadSavedToken() {
+            // Try localStorage first
+            let savedToken = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+            let savedExpiry = localStorage.getItem(STORAGE_KEYS.TOKEN_EXPIRY);
+            
+            // Fallback to cookie
+            if (!savedToken) {
+                savedToken = getCookie(STORAGE_KEYS.ACCESS_TOKEN);
+                savedExpiry = getCookie(STORAGE_KEYS.TOKEN_EXPIRY);
+                if (savedToken) {
+                    showStatus('📌 Loaded token from cookie backup', 'info');
+                }
+            }
+            
+            if (savedToken && savedExpiry && Date.now() < parseInt(savedExpiry)) {
+                accessToken = savedToken;
+                tokenExpiry = parseInt(savedExpiry);
+                
+                // Restore to localStorage if needed
+                if (!localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN)) {
+                    localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, savedToken);
+                    localStorage.setItem(STORAGE_KEYS.TOKEN_EXPIRY, savedExpiry);
+                }
+                
+                // Load saved user info
+                const savedUserInfo = localStorage.getItem(STORAGE_KEYS.USER_INFO);
+                if (savedUserInfo) {
+                    try {
+                        userInfo = JSON.parse(savedUserInfo);
+                    } catch(e) {}
+                }
+                
+                showStatus(`✅ Valid token loaded (expires: ${new Date(tokenExpiry).toLocaleString()})`, 'success');
+                return true;
+            }
+            
+            showStatus('ℹ️ No valid saved token found', 'info');
+            return false;
+        }
+        
+        function clearToken() {
+            accessToken = null;
+            tokenExpiry = null;
+            userInfo = null;
+            
+            // Clear localStorage
+            localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+            localStorage.removeItem(STORAGE_KEYS.TOKEN_EXPIRY);
+            localStorage.removeItem(STORAGE_KEYS.USER_INFO);
+            
+            // Clear cookies
+            deleteCookie(STORAGE_KEYS.ACCESS_TOKEN);
+            deleteCookie(STORAGE_KEYS.TOKEN_EXPIRY);
+            deleteCookie(STORAGE_KEYS.USER_INFO);
+            
+            // Clear sessionStorage
+            sessionStorage.clear();
+            
+            showStatus('🗑️ All authentication data cleared', 'info');
+            updateStorageInfo();
+            updateTokenInfo();
+            updateUserInfoDisplay();
+            updateCookieInfo();
+        }
+        
+        function updateStorageInfo() {
+            const info = {
+                localStorage: {},
+                sessionStorage: {}
+            };
+            
+            // Get localStorage (only NotyCaption keys)
+            for (let key in localStorage) {
+                if (key.startsWith('notycaption_')) {
+                    let value = localStorage[key];
+                    info.localStorage[key] = value.length > 100 ? value.substring(0, 100) + '...' : value;
+                }
+            }
+            
+            // Get sessionStorage
+            for (let key in sessionStorage) {
+                if (key.startsWith('notycaption_') || key.startsWith('colab_')) {
+                    let value = sessionStorage[key];
+                    info.sessionStorage[key] = value.length > 100 ? value.substring(0, 100) + '...' : value;
+                }
+            }
+            
+            document.getElementById('storageInfo').innerHTML = JSON.stringify(info, null, 2);
+        }
+        
+        function updateTokenInfo() {
+            const info = {
+                hasToken: !!accessToken,
+                tokenExpiry: tokenExpiry ? new Date(tokenExpiry).toLocaleString() : null,
+                timeUntilExpiry: tokenExpiry ? Math.floor((tokenExpiry - Date.now()) / 1000) + ' seconds' : null,
+                isValid: tokenExpiry ? Date.now() < tokenExpiry : false
+            };
+            document.getElementById('tokenInfoPre').innerHTML = JSON.stringify(info, null, 2);
+        }
+        
+        function updateCookieInfo() {
+            const cookies = {};
+            document.cookie.split(';').forEach(cookie => {
+                const [name, value] = cookie.trim().split('=');
+                if (name && name.startsWith('notycaption_')) {
+                    cookies[name] = value;
+                }
+            });
+            document.getElementById('cookieInfoPre').innerHTML = JSON.stringify(cookies, null, 2);
+        }
+        
+        function updateUserInfoDisplay() {
+            if (userInfo) {
+                document.getElementById('userInfoPre').innerHTML = JSON.stringify(userInfo, null, 2);
+            } else {
+                document.getElementById('userInfoPre').innerText = 'None';
+            }
+        }
+        
+        async function getUserInfo() {
+            const token = accessToken || localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+            if (!token) {
+                showStatus('⚠️ No token found', 'error');
+                return null;
+            }
+            
+            try {
+                showStatus('👤 Fetching user info from Google...', 'info');
+                const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                    headers: { 
+                        'Authorization': `Bearer ${token}`,
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    userInfo = await response.json();
+                    localStorage.setItem(STORAGE_KEYS.USER_INFO, JSON.stringify(userInfo));
+                    setCookie(STORAGE_KEYS.USER_INFO, JSON.stringify(userInfo), 7);
+                    updateUserInfoDisplay();
+                    showStatus(`✅ Welcome ${userInfo.name}! (${userInfo.email})`, 'success');
+                    return userInfo;
+                } else {
+                    showStatus(`❌ Token invalid (${response.status}), please login again`, 'error');
+                    clearToken();
+                    return null;
+                }
+            } catch (error) {
+                showStatus('❌ Error fetching user info: ' + error.message, 'error');
+                return null;
+            }
+        }
+        
+        function loginWithGoogle() {
+            // Check if CONFIG is loaded
+            if (typeof CONFIG === 'undefined') {
+                showStatus('❌ config.js not loaded! Please make sure the file exists.', 'error');
+                return;
+            }
+            
+            console.log('🔐 Starting login with config:', CONFIG);
+            
+            const authUrl = new URL(CONFIG.AUTH_URI);
+            authUrl.searchParams.append('client_id', CONFIG.CLIENT_ID);
+            authUrl.searchParams.append('redirect_uri', CONFIG.REDIRECT_URI);
+            authUrl.searchParams.append('response_type', 'token');
+            authUrl.searchParams.append('scope', CONFIG.SCOPES);
+            authUrl.searchParams.append('include_granted_scopes', 'true');
+            authUrl.searchParams.append('prompt', 'select_account');
+            authUrl.searchParams.append('state', 'notycaption_login_' + Date.now());
+            
+            showStatus('🔄 Redirecting to Google for authentication...', 'info');
+            console.log('Auth URL:', authUrl.toString());
+            window.location.href = authUrl.toString();
+        }
+        
+        function handleOAuthCallback() {
+            const hash = window.location.hash.substring(1);
+            if (!hash) return false;
+            
+            console.log('📨 Processing OAuth callback');
+            const params = new URLSearchParams(hash);
+            const access_token = params.get('access_token');
+            const expires_in = params.get('expires_in');
+            const token_type = params.get('token_type');
+            
+            if (access_token && expires_in) {
+                console.log('✅ OAuth callback successful');
+                saveToken(access_token, parseInt(expires_in));
+                
+                // Clean URL
+                window.location.hash = '';
+                
+                // Fetch user info
+                getUserInfo().then(() => {
+                    showStatus('✅ Login successful!', 'success');
+                    updateStorageInfo();
+                    updateTokenInfo();
+                    updateCookieInfo();
+                });
+                
+                return true;
+            }
+            
+            const error = params.get('error');
+            if (error) {
+                showStatus(`❌ OAuth error: ${error}`, 'error');
+            }
+            
+            return false;
+        }
+        
+        function testCheckStatus() {
+            const loaded = loadSavedToken();
+            
+            if (loaded && accessToken) {
+                showStatus(`✅ Session valid. Token expires at ${new Date(tokenExpiry).toLocaleString()}`, 'success');
+                getUserInfo();
+            } else if (accessToken) {
+                showStatus('⚠️ Token expired, please login again', 'error');
+            } else {
+                showStatus('ℹ️ No session found, please login', 'info');
+            }
+            
+            updateStorageInfo();
+            updateTokenInfo();
+            updateCookieInfo();
+        }
+        
+        function testClearAll() {
+            if (confirm('⚠️ This will clear all authentication data and settings. Continue?')) {
+                clearToken();
+                testCheckStatus();
+            }
+        }
+        
+        function testLogout() {
+            if (confirm('Logout from NotyCaption?')) {
+                clearToken();
+                showStatus('✅ Logged out successfully', 'success');
+                updateUserInfoDisplay();
+            }
+        }
+        
+        function testReloadConfig() {
+            showStatus('🔄 Reloading config...', 'info');
+            // Force reload config.js
+            const script = document.createElement('script');
+            script.src = 'config.js?' + Date.now();
+            script.onload = () => {
+                displayConfig();
+                showStatus('✅ Config reloaded successfully', 'success');
+            };
+            script.onerror = () => {
+                showStatus('❌ Failed to reload config.js', 'error');
+            };
+            document.head.appendChild(script);
+        }
+        
+        function displayConfig() {
+            const configDisplay = document.getElementById('configDisplay');
+            if (typeof CONFIG !== 'undefined') {
+                // Hide sensitive info
+                const safeConfig = { ...CONFIG };
+                if (safeConfig.CLIENT_ID) {
+                    safeConfig.CLIENT_ID = safeConfig.CLIENT_ID.substring(0, 20) + '...';
+                }
+                configDisplay.innerHTML = JSON.stringify(safeConfig, null, 2);
+            } else {
+                configDisplay.innerHTML = '⚠️ CONFIG not loaded. Check that config.js exists and is accessible.';
+            }
+        }
+        
+        // Initialize
+        function init() {
+            displayConfig();
+            
+            // Check for OAuth callback
+            if (window.location.hash && window.location.hash.includes('access_token')) {
+                handleOAuthCallback();
+            } else {
+                loadSavedToken();
+                if (accessToken) {
+                    getUserInfo();
+                }
+                updateStorageInfo();
+                updateTokenInfo();
+                updateCookieInfo();
+            }
+        }
+        
+        // Make functions global
+        window.testLogin = loginWithGoogle;
+        window.testLogout = testLogout;
+        window.testCheckStatus = testCheckStatus;
+        window.testClearAll = testClearAll;
+        window.testReloadConfig = testReloadConfig;
+        
+        // Start
+        init();
+    </script>
+</body>
+</html>

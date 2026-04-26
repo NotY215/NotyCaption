@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NotyCaption - Terms and Conditions</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+<style>
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:Poppins,sans-serif;
+}
+
+html{
+scroll-behavior:smooth;
+}
+
+body{
+background:#050510;
+color:#e6e6e6;
+line-height:1.7;
+overflow-x:hidden;
+}
+
+/* Aurora background */
+
+body::before{
+content:"";
+position:fixed;
+width:100%;
+height:100%;
+background:linear-gradient(120deg,#00e5ff,#00c853,#7c4dff,#ff4081);
+background-size:400% 400%;
+animation:aurora 20s ease infinite;
+opacity:.12;
+z-index:-1;
+}
+
+@keyframes aurora{
+0%{background-position:0% 50%;}
+50%{background-position:100% 50%;}
+100%{background-position:0% 50%;}
+}
+
+/* Navbar */
+
+.nav{
+position:sticky;
+top:0;
+width:100%;
+background:rgba(0,0,0,.45);
+backdrop-filter:blur(10px);
+padding:15px 40px;
+display:flex;
+justify-content:space-between;
+align-items:center;
+z-index:100;
+}
+
+.nav h2{
+font-size:18px;
+}
+
+.nav a{
+color:#ddd;
+text-decoration:none;
+margin-left:20px;
+font-size:14px;
+}
+
+.nav a:hover{
+color:#00e5ff;
+}
+
+/* Container */
+
+.container{
+max-width:900px;
+margin:auto;
+padding:80px 25px;
+}
+
+/* Title */
+
+.title{
+font-size:40px;
+margin-bottom:15px;
+background:linear-gradient(90deg,#00e5ff,#00c853);
+-webkit-background-clip:text;
+color:transparent;
+}
+
+.subtitle{
+color:#aaa;
+margin-bottom:40px;
+}
+
+/* Sections */
+
+section{
+margin-bottom:40px;
+padding:25px 30px;
+border-radius:14px;
+background:rgba(255,255,255,.05);
+backdrop-filter:blur(8px);
+}
+
+section h2{
+font-size:22px;
+margin-bottom:10px;
+color:#00e5ff;
+}
+
+section h3{
+margin-top:10px;
+margin-bottom:8px;
+color:#9be7ff;
+font-size:18px;
+}
+
+ul{
+margin-top:10px;
+padding-left:20px;
+}
+
+li{
+margin-bottom:6px;
+}
+
+/* Divider */
+
+hr{
+border:none;
+height:1px;
+background:rgba(255,255,255,.1);
+margin:40px 0;
+}
+
+/* Footer */
+
+.footer{
+text-align:center;
+margin-top:60px;
+color:#888;
+font-size:14px;
+}
+
+@media(max-width:700px){
+
+.title{
+font-size:30px;
+}
+
+.nav{
+padding:12px 20px;
+}
+
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="nav">
+<h2>NotyCaption</h2>
+<div>
+<a href="#terms">Terms</a>
+<a href="#privacy">Privacy</a>
+<a href="https://github.com/NotY215/NotyCaption-Official">GitHub</a>
+</div>
+</div>
+
+<div class="container">
+
+<h1 class="title" id="terms">NotyCaption - Terms and Conditions</h1>
+
+<p class="subtitle">
+Welcome to <strong>NotyCaption</strong>, developed by <strong>NotY215</strong>.
+By downloading, installing, or using the App you agree to the Terms below.
+</p>
+
+<section>
+<h2>1. Acceptance of Terms</h2>
+
+<p>
+These Terms constitute a legally binding agreement between you and NotY215.
+You must be at least <strong>13 years old</strong> (or the minimum age required in your country) to use the App.
+</p>
+
+<p>
+If you are under the age of majority in your jurisdiction, your parent or legal guardian must agree to these Terms on your behalf.
+</p>
+
+</section>
+
+<section>
+
+<h2>2. License to Use the App</h2>
+
+<p>
+NotY215 grants you a <strong>limited, non-exclusive, non-transferable, revocable license</strong> to use NotyCaption for personal, non-commercial purposes only.
+</p>
+
+<p>You may <strong>not</strong>:</p>
+
+<ul>
+<li>Reverse engineer, decompile, or modify the app</li>
+<li>Sell, rent, sublicense, or distribute the software</li>
+<li>Remove copyright notices</li>
+<li>Use the app for illegal or fraudulent activities</li>
+<li>Disrupt or interfere with the service</li>
+</ul>
+
+</section>
+
+<section>
+
+<h2>3. Google Login & Online Mode</h2>
+
+<h3>3.1 Google OAuth Authentication</h3>
+
+<p>
+If you sign in using Google, the app uses <strong>Google OAuth 2.0</strong> to request limited access to Google Drive.
+</p>
+
+<ul>
+<li>Upload temporary audio files</li>
+<li>Create temporary Google Colab notebooks</li>
+<li>Download generated subtitle files</li>
+<li>Delete temporary files after completion</li>
+</ul>
+
+<p>
+We do not store your Google credentials or access unrelated files.
+</p>
+
+<h3>3.2 Online Mode Limitations</h3>
+
+<ul>
+<li>Online mode uses Google Colab, a third-party service</li>
+<li>We cannot control Colab availability or quotas</li>
+<li>Temporary files are deleted when possible</li>
+<li>You are responsible for any Google account usage</li>
+</ul>
+
+</section>
+
+<section id="privacy">
+
+<h2>4. Local Processing & Privacy</h2>
+
+<p>
+When using local mode:
+</p>
+
+<ul>
+<li>All transcription runs locally on your device</li>
+<li>No files are sent to external servers</li>
+<li>Temporary audio files are deleted when possible</li>
+</ul>
+
+<p>
+We do <strong>not collect</strong>:
+</p>
+
+<ul>
+<li>Your audio files</li>
+<li>Your subtitles</li>
+<li>Personal information</li>
+</ul>
+
+</section>
+
+<section>
+
+<h2>5. Open Source Components</h2>
+
+<ul>
+<li>OpenAI Whisper</li>
+<li>Spleeter</li>
+<li>PyQt5</li>
+<li>pysrt / pysubs2</li>
+<li>MoviePy</li>
+<li>Google Drive API & Google Colab</li>
+</ul>
+
+</section>
+
+<section>
+
+<h2>6. No Warranty</h2>
+
+<p>
+The App is provided <strong>"AS IS"</strong> without warranties of any kind.
+</p>
+
+<ul>
+<li>No guarantee of perfect transcription accuracy</li>
+<li>No guarantee of subtitle sync accuracy</li>
+<li>Online mode may fail due to third-party limitations</li>
+</ul>
+
+</section>
+
+<section>
+
+<h2>7. Limitation of Liability</h2>
+
+<p>
+To the maximum extent permitted by law, NotY215 shall not be liable for indirect or consequential damages including loss of data or profits.
+</p>
+
+<p>
+Total liability shall not exceed <strong>₹1 INR</strong>.
+</p>
+
+</section>
+
+<section>
+
+<h2>8. Termination</h2>
+
+<p>
+We may suspend or terminate access to the App if these Terms are violated.
+</p>
+
+</section>
+
+<section>
+
+<h2>9. Changes to Terms</h2>
+
+<p>
+These Terms may be updated in future versions of the App.
+Continued use indicates acceptance of the revised Terms.
+</p>
+
+</section>
+
+<section>
+
+<h2>10. Governing Law</h2>
+
+<p>
+These Terms are governed by the laws of <strong>India</strong>.
+</p>
+
+<p>
+Jurisdiction: <strong>Courts of Patna, Bihar, India</strong>.
+</p>
+
+</section>
+
+<section>
+
+<h2>11. Contact</h2>
+
+<p>
+Developer: <strong>NotY215</strong>
+</p>
+
+</section>
+
+<hr>
+
+<p>
+<strong>
+By using NotyCaption you acknowledge that you have read, understood, and agree to these Terms.
+</strong>
+</p>
+
+<div class="footer">
+
+© 2025–2026 NotY215  
+Made with ❤️ in India
+
+</div>
+
+</div>
+
+</body>
+</html>

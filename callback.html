@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Processing Login - NotyCaption</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            text-align: center;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            padding: 40px;
+            border-radius: 20px;
+            max-width: 500px;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #00e5ff;
+            animation: spin 1s ease-in-out infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .success { color: #00c853; }
+        .error { color: #ff4081; }
+        button {
+            background: linear-gradient(90deg, #00e5ff, #00c853);
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            color: #1a1a2e;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        .token-info {
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin-top: 15px;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>🔐 NotyCaption Pro</h2>
+        <div class="spinner"></div>
+        <p id="message">Processing login...</p>
+        <div id="tokenInfo" class="token-info" style="display:none;"></div>
+        <div id="errorDiv" style="display:none;">
+            <p id="errorMsg" class="error"></p>
+            <button onclick="window.location.href='/#home'">Go Back</button>
+        </div>
+    </div>
+
+    <script>
+        function setCookie(name, value, days = 7) {
+            const expires = new Date();
+            expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+            document.cookie = `${name}=${encodeURIComponent(value)};expires=${expires.toUTCString()};path=/;SameSite=Lax`;
+            console.log(`Cookie set: ${name}=${value.substring(0,20)}...`);
+        }
+
+        async function processCallback() {
+            const messageEl = document.getElementById('message');
+            const tokenInfoEl = document.getElementById('tokenInfo');
+            
+            let hash = window.location.hash.substring(1);
+            if (!hash && window.location.search) {
+                hash = window.location.search.substring(1);
+            }
+            
+            console.log('Processing callback with hash:', hash);
+            
+            if (!hash) {
+                messageEl.innerHTML = '<span class="error">❌ No authentication data found</span>';
+                document.getElementById('errorDiv').style.display = 'block';
+                document.getElementById('errorMsg').innerText = 'Please try logging in again.';
+                return;
+            }
+            
+            const params = new URLSearchParams(hash);
+            const access_token = params.get('access_token');
+            const expires_in = params.get('expires_in');
+            const error = params.get('error');
+            
+            if (error) {
+                messageEl.innerHTML = `<span class="error">❌ Login Error: ${decodeURIComponent(error)}</span>`;
+                document.getElementById('errorDiv').style.display = 'block';
+                document.getElementById('errorMsg').innerText = decodeURIComponent(error);
+                return;
+            }
+            
+            if (access_token && expires_in) {
+                messageEl.innerHTML = '✅ Authentication successful!<br>Saving your session...';
+                
+                const tokenStart = access_token.substring(0, 15);
+                const tokenEnd = access_token.substring(access_token.length - 10);
+                tokenInfoEl.style.display = 'block';
+                tokenInfoEl.innerHTML = `Token: ${tokenStart}...${tokenEnd}<br>Expires in: ${parseInt(expires_in)} seconds`;
+                
+                // Save to localStorage
+                localStorage.setItem('notycaption_access_token', access_token);
+                localStorage.setItem('notycaption_token_expiry', (Date.now() + (parseInt(expires_in) * 1000)).toString());
+                console.log('Token saved to localStorage');
+                
+                // Save to cookie with correct path
+                setCookie('notycaption_access_token', access_token, 7);
+                setCookie('notycaption_token_expiry', (Date.now() + (parseInt(expires_in) * 1000)).toString(), 7);
+                
+                messageEl.innerHTML = '✅ Token saved!<br>Fetching your profile information...';
+                
+                try {
+                    const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                        headers: { 'Authorization': `Bearer ${access_token}` }
+                    });
+                    
+                    if (userResponse.ok) {
+                        const userInfo = await userResponse.json();
+                        localStorage.setItem('notycaption_user_info', JSON.stringify(userInfo));
+                        setCookie('notycaption_user_info', JSON.stringify(userInfo), 7);
+                        
+                        // Verify save
+                        const savedToken = localStorage.getItem('notycaption_access_token');
+                        const savedUser = localStorage.getItem('notycaption_user_info');
+                        
+                        console.log('Verification - Token saved:', !!savedToken, 'User saved:', !!savedUser);
+                        
+                        if (savedToken && savedUser) {
+                            messageEl.innerHTML = `<span class="success">✅ Welcome, ${userInfo.name || 'User'}!</span><br>Email: ${userInfo.email}<br>Redirecting to app...`;
+                            
+                            setTimeout(() => {
+                                window.location.href = '/#home';
+                            }, 2000);
+                        } else {
+                            messageEl.innerHTML = '<span class="error">❌ Failed to save session data</span>';
+                            setTimeout(() => {
+                                window.location.href = '/#home';
+                            }, 3000);
+                        }
+                    } else {
+                        messageEl.innerHTML = '<span class="error">⚠️ Could not fetch profile</span>';
+                        setTimeout(() => {
+                            window.location.href = '/#home';
+                        }, 2000);
+                    }
+                } catch (err) {
+                    console.error('Error:', err);
+                    messageEl.innerHTML = '<span class="error">⚠️ Profile fetch failed</span>';
+                    setTimeout(() => {
+                        window.location.href = '/#home';
+                    }, 2000);
+                }
+            } else {
+                messageEl.innerHTML = '<span class="error">❌ Invalid authentication response</span>';
+                document.getElementById('errorDiv').style.display = 'block';
+                document.getElementById('errorMsg').innerText = 'Missing required authentication data.';
+            }
+        }
+
+        processCallback();
+    </script>
+</body>
+</html>

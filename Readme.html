@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NotyCaption Pro</title>
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;500;700&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/vanilla-tilt@1.7.2/dist/vanilla-tilt.min.js"></script>
+
+<style>
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:Poppins,sans-serif;
+}
+
+body{
+background:#050510;
+color:white;
+overflow-x:hidden;
+}
+
+/* aurora background */
+
+body::before{
+content:"";
+position:fixed;
+width:100%;
+height:100%;
+background:linear-gradient(120deg,#00e5ff,#00c853,#7c4dff,#ff4081);
+background-size:400% 400%;
+animation:aurora 18s ease infinite;
+opacity:.15;
+z-index:-2;
+}
+
+@keyframes aurora{
+0%{background-position:0% 50%;}
+50%{background-position:100% 50%;}
+100%{background-position:0% 50%;}
+}
+
+/* particles */
+
+#particles-js{
+position:fixed;
+width:100%;
+height:100%;
+z-index:-1;
+}
+
+/* navbar */
+
+.nav{
+position:fixed;
+top:0;
+width:100%;
+display:flex;
+justify-content:space-between;
+align-items:center;
+padding:15px 40px;
+background:rgba(0,0,0,.35);
+backdrop-filter:blur(10px);
+z-index:999;
+}
+
+.nav a{
+color:white;
+text-decoration:none;
+margin-left:20px;
+font-size:14px;
+}
+
+/* hero */
+
+.hero{
+text-align:center;
+padding:150px 20px;
+}
+
+.hero h1{
+font-size:60px;
+background:linear-gradient(90deg,#00e5ff,#00c853);
+-webkit-background-clip:text;
+background-clip:text;
+color:transparent;
+}
+
+.hero p{
+margin-top:20px;
+font-size:20px;
+color:#ccc;
+}
+
+.btn{
+display:inline-block;
+margin-top:30px;
+padding:15px 35px;
+border-radius:30px;
+background:#00c853;
+color:white;
+font-weight:bold;
+text-decoration:none;
+box-shadow:0 0 20px #00c853;
+transition:.3s;
+}
+
+.btn:hover{
+transform:scale(1.1);
+box-shadow:0 0 40px #00c853;
+}
+
+/* stats */
+
+.stats{
+display:none;
+justify-content:center;
+gap:40px;
+margin-top:60px;
+flex-wrap:wrap;
+}
+
+.stat{
+background:rgba(255,255,255,0.05);
+padding:20px 40px;
+border-radius:15px;
+backdrop-filter:blur(10px);
+}
+
+.stat h2{
+font-size:32px;
+color:#00e5ff;
+}
+
+/* features */
+
+.features{
+padding:100px 10%;
+display:grid;
+grid-template-columns:repeat(auto-fit,minmax(250px,1fr));
+gap:30px;
+}
+
+.card{
+background:rgba(255,255,255,0.05);
+padding:30px;
+border-radius:20px;
+text-align:center;
+transition:.4s;
+backdrop-filter:blur(10px);
+}
+
+.card:hover{
+transform:scale(1.05);
+box-shadow:0 0 40px rgba(0,255,200,.4);
+}
+
+.card i{
+font-size:40px;
+margin-bottom:15px;
+}
+
+/* slider */
+
+.slider{
+width:80%;
+margin:auto;
+overflow:hidden;
+border-radius:20px;
+margin-top:80px;
+}
+
+.slides{
+display:flex;
+transition:.6s;
+}
+
+.slides img{
+width:100%;
+border-radius:20px;
+}
+
+/* footer */
+
+.footer{
+text-align:center;
+padding:60px;
+color:#aaa;
+}
+
+</style>
+</head>
+
+<body>
+
+<div id="particles-js"></div>
+
+<div class="nav">
+<div><b>NotyCaption</b></div>
+<div>
+<a href="#features">Features</a>
+<a href="https://github.com/NotY215/NotyCaption-Official">GitHub</a>
+</div>
+</div>
+
+<section class="hero">
+
+<h1>NotyCaption Pro</h1>
+
+<p>AI Powered Smart Caption Generator using Whisper</p>
+
+<div class="stats" id="stats">
+
+<div class="stat">
+<h2 id="stars"></h2>
+<p>Stars</p>
+</div>
+
+<div class="stat">
+<h2 id="downloads"></h2>
+<p>Downloads</p>
+</div>
+
+<div class="stat">
+<h2 id="version"></h2>
+<p>Latest Release</p>
+</div>
+
+</div>
+
+</section>
+
+<section class="features" id="features">
+
+<div class="card" data-tilt>
+<i>🤖</i>
+<h3>AI Subtitle Generation</h3>
+<p>OpenAI Whisper transcription</p>
+</div>
+
+<div class="card" data-tilt>
+<i>⚡</i>
+<h3>GPU Processing</h3>
+<p>Google Colab acceleration</p>
+</div>
+
+<div class="card" data-tilt>
+<i>🎤</i>
+<h3>Vocal Enhancement</h3>
+<p>Remove background music</p>
+</div>
+
+<div class="card" data-tilt>
+<i>🎬</i>
+<h3>ASS Styling</h3>
+<p>Advanced subtitle effects</p>
+</div>
+
+<div class="card" data-tilt>
+<i>🧠</i>
+<h3>Large-v1 Model</h3>
+<p>Highest accuracy AI captions</p>
+</div>
+
+<div class="card" data-tilt>
+<i>🌙</i>
+<h3>Dark / Light Themes</h3>
+<p>Modern interface</p>
+</div>
+
+</section>
+
+<section class="slider">
+
+<div class="slides" id="slides">
+
+<img src="https://github.com/NotY215/NotyCaption-Official/blob/Main/icons/Generate.png?raw=true" width="128" height="128">
+<img src="https://github.com/NotY215/NotyCaption-Official/blob/Main/icons/performance.png?raw=true" width="128" height="128">
+<img src="https://github.com/NotY215/NotyCaption-Official/blob/Main/icons/enhance.png?raw=true" width="128" height="128">
+
+</div>
+
+</section>
+
+<div class="footer">
+Made with ❤️ in India  
+Star the repo ⭐
+</div>
+
+<script>
+
+/* particles */
+
+particlesJS("particles-js",{
+particles:{
+number:{value:80},
+size:{value:3},
+move:{speed:1},
+line_linked:{enable:true}
+}
+});
+
+/* 3D tilt */
+
+VanillaTilt.init(document.querySelectorAll("[data-tilt]"),{
+max:15,
+speed:400
+});
+
+/* slider */
+
+let i=0;
+
+setInterval(()=>{
+i++;
+document.getElementById("slides").style.transform=
+"translateX(-"+i*100+"%)";
+
+if(i==3)i=0;
+},4000);
+
+/* github stats */
+
+Promise.all([
+fetch("https://api.github.com/repos/NotY215/NotyCaption").then(r=>r.json()),
+fetch("https://api.github.com/repos/NotY215/NotyCaption/releases").then(r=>r.json())
+]).then(([repo,releases])=>{
+
+let downloads=0;
+
+releases.forEach(r=>{
+r.assets.forEach(a=>{
+downloads+=a.download_count;
+});
+});
+
+document.getElementById("stars").innerText=repo.stargazers_count;
+document.getElementById("version").innerText=releases[0]?.tag_name || "";
+document.getElementById("downloads").innerText=downloads;
+
+document.getElementById("stats").style.display="flex";
+
+}).catch(()=>{});
+
+</script>
+
+</body>
+</html>

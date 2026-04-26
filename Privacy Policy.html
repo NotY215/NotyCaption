@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NotyCaption Pro - Privacy Policy</title>
+<link rel="icon" type="image/x-icon" href="/App.ico">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: 'Poppins', sans-serif;
+    }
+
+    body {
+        background: #050510;
+        color: #e6e6e6;
+        line-height: 1.7;
+        overflow-x: hidden;
+    }
+
+    body::before {
+        content: "";
+        position: fixed;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(120deg, #00e5ff, #00c853, #7c4dff, #ff4081);
+        background-size: 400% 400%;
+        animation: aurora 20s ease infinite;
+        opacity: 0.12;
+        z-index: -1;
+    }
+
+    @keyframes aurora {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    .nav {
+        position: sticky;
+        top: 0;
+        width: 100%;
+        background: rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(10px);
+        padding: 15px 40px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        z-index: 100;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .nav h2 {
+        font-size: 20px;
+        background: linear-gradient(90deg, #00e5ff, #00c853);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }
+
+    .nav a {
+        color: #ddd;
+        text-decoration: none;
+        margin-left: 25px;
+        font-size: 14px;
+        transition: color 0.3s;
+    }
+
+    .nav a:hover {
+        color: #00e5ff;
+    }
+
+    .container {
+        max-width: 1000px;
+        margin: auto;
+        padding: 80px 25px;
+    }
+
+    .header {
+        text-align: center;
+        margin-bottom: 50px;
+    }
+
+    .title {
+        font-size: 48px;
+        margin-bottom: 15px;
+        background: linear-gradient(90deg, #00e5ff, #00c853);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }
+
+    .effective-date {
+        color: #aaa;
+        font-size: 14px;
+        margin-bottom: 10px;
+    }
+
+    .version-badge {
+        display: inline-block;
+        background: rgba(0, 229, 255, 0.2);
+        border: 1px solid #00e5ff;
+        border-radius: 30px;
+        padding: 5px 15px;
+        margin-top: 10px;
+        font-size: 12px;
+        color: #00e5ff;
+    }
+
+    .warning-badge {
+        display: inline-block;
+        background: rgba(255, 64, 129, 0.2);
+        border: 1px solid #ff4081;
+        border-radius: 30px;
+        padding: 8px 20px;
+        margin-top: 20px;
+        font-size: 14px;
+        color: #ff4081;
+    }
+
+    .section {
+        margin-bottom: 35px;
+        padding: 25px 30px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.05);
+        backdrop-filter: blur(8px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    .section:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        border-color: rgba(0, 229, 255, 0.3);
+    }
+
+    .section h2 {
+        font-size: 24px;
+        margin-bottom: 15px;
+        color: #00e5ff;
+        border-left: 4px solid #00e5ff;
+        padding-left: 15px;
+    }
+
+    .section h3 {
+        font-size: 18px;
+        margin-top: 20px;
+        margin-bottom: 10px;
+        color: #9be7ff;
+    }
+
+    .section p {
+        margin-bottom: 12px;
+        color: #d0d0d0;
+    }
+
+    .section ul, .section ol {
+        margin: 15px 0 15px 30px;
+    }
+
+    .section li {
+        margin-bottom: 8px;
+        color: #c0c0c0;
+    }
+
+    .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+    }
+
+    .data-table th, .data-table td {
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 12px;
+        text-align: left;
+    }
+
+    .data-table th {
+        background: rgba(0, 229, 255, 0.15);
+        color: #00e5ff;
+        font-weight: 600;
+    }
+
+    .data-table td {
+        background: rgba(0, 0, 0, 0.3);
+    }
+
+    .data-table a {
+        color: #00c853;
+        text-decoration: none;
+    }
+
+    .data-table a:hover {
+        text-decoration: underline;
+    }
+
+    .disclaimer-box {
+        background: rgba(255, 64, 129, 0.1);
+        border-left: 4px solid #ff4081;
+        padding: 20px;
+        margin: 25px 0;
+        border-radius: 12px;
+    }
+
+    .disclaimer-box h3 {
+        color: #ff4081;
+        margin-top: 0;
+    }
+
+    .agreement-box {
+        background: rgba(0, 200, 83, 0.1);
+        border-left: 4px solid #00c853;
+        padding: 20px;
+        margin: 25px 0;
+        border-radius: 12px;
+        text-align: center;
+    }
+
+    .footer {
+        text-align: center;
+        margin-top: 60px;
+        padding: 30px;
+        color: #888;
+        font-size: 13px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .footer a {
+        color: #00e5ff;
+        text-decoration: none;
+    }
+
+    .scroll-top {
+        position: fixed;
+        bottom: 30px;
+        right: 30px;
+        background: rgba(0, 229, 255, 0.2);
+        border: 1px solid #00e5ff;
+        border-radius: 50%;
+        width: 45px;
+        height: 45px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.3s;
+        backdrop-filter: blur(5px);
+        z-index: 999;
+    }
+
+    .scroll-top:hover {
+        background: rgba(0, 229, 255, 0.4);
+        transform: scale(1.1);
+    }
+
+    .scroll-top::before {
+        content: "↑";
+        font-size: 24px;
+        color: #00e5ff;
+    }
+
+    @media (max-width: 768px) {
+        .nav {
+            padding: 12px 20px;
+        }
+        .nav a {
+            margin-left: 15px;
+            font-size: 12px;
+        }
+        .title {
+            font-size: 32px;
+        }
+        .section {
+            padding: 20px;
+        }
+        .section h2 {
+            font-size: 20px;
+        }
+        .data-table {
+            font-size: 12px;
+        }
+        .data-table th, .data-table td {
+            padding: 8px;
+        }
+    }
+</style>
+</head>
+<body>
+
+<div class="nav">
+    <h2>🔒 NotyCaption Pro (Web Version v6.4)</h2>
+    <div>
+        <a href="#privacy">Privacy</a>
+        <a href="#cookies">Cookies</a>
+        <a href="#disclaimer">Disclaimer</a>
+        <a href="#contact">Contact</a>
+        <a href="https://github.com/NotY215/NotyCaption-Official">GitHub</a>
+    </div>
+</div>
+
+<div class="container">
+    <div class="header">
+        <h1 class="title">Privacy Policy</h1>
+        <div class="effective-date">Effective Date: April 2026 | Last Updated: April 25, 2026</div>
+        <div class="version-badge">Web Version 6.4</div>
+        <div class="warning-badge">⚠️ NO DATA COLLECTION • BROWSER STORAGE • YOUR RISK</div>
+    </div>
+
+    <!-- Section 1: Introduction -->
+    <div class="section" id="privacy">
+        <h2>1. Introduction</h2>
+        <p>Welcome to <strong>NotyCaption Pro Web Version</strong> ("we", "our", "us", "NotY215"). This Privacy Policy explains how we handle your information when you use our web application. By using NotyCaption Pro Web, you agree to the terms of this Privacy Policy.</p>
+        <p><strong>Important Note:</strong> This is a <strong>pure client-side web application</strong>. All processing happens in Google Colab via your browser. No backend servers are involved.</p>
+    </div>
+
+    <!-- Section 2: Data We DO NOT Collect -->
+    <div class="section">
+        <h2>2. Data We DO NOT Collect</h2>
+        <p>We <strong>DO NOT</strong> collect, store, or transmit:</p>
+        <ul>
+            <li>❌ Your audio files (they stay in your Google Drive)</li>
+            <li>❌ Your generated subtitles/captions</li>
+            <li>❌ Your personal identifiable information</li>
+            <li>❌ Your IP address</li>
+            <li>❌ Your browsing history</li>
+            <li>❌ Your keystrokes or mouse movements</li>
+            <li>❌ Any biometric or location data</li>
+        </ul>
+    </div>
+
+    <!-- Section 3: Browser Storage (Cookies/LocalStorage) -->
+    <div class="section" id="cookies">
+        <h2>3. Browser Storage (Cookies & LocalStorage)</h2>
+        <p>Our web application stores the following data in your browser:</p>
+        <ul>
+            <li>📦 <strong>LocalStorage:</strong> Google OAuth tokens (encrypted), user preferences (language, words per line, output format)</li>
+            <li>🍪 <strong>Session Storage:</strong> Temporary operation data during Colab processing</li>
+        </ul>
+        <p><strong>Important:</strong></p>
+        <ul>
+            <li>All data is stored <strong>ONLY in your browser</strong></li>
+            <li>We have <strong>NO access</strong> to this data</li>
+            <li>You can clear this data at any time via browser settings</li>
+            <li>No tracking cookies or analytics are used</li>
+        </ul>
+    </div>
+
+    <!-- Section 4: How It Works -->
+    <div class="section">
+        <h2>4. How NotyCaption Pro Web Works</h2>
+        <p>The application follows a privacy-first architecture:</p>
+        <ol>
+            <li><strong>Login:</strong> You authenticate with Google directly. Your credentials never pass through our servers.</li>
+            <li><strong>Audio Upload:</strong> Audio files are uploaded directly to <strong>YOUR Google Drive</strong>.</li>
+            <li><strong>Processing:</strong> Google Colab processes the file using Whisper/Spleeter.</li>
+            <li><strong>Result:</strong> Generated files are saved back to <strong>YOUR Google Drive</strong> and downloaded to your browser.</li>
+            <li><strong>Cleanup:</strong> Temporary files are deleted from Google Drive.</li>
+        </ol>
+        <p><strong>No data ever passes through our servers. Everything happens between your browser, Google Drive, and Google Colab.</strong></p>
+    </div>
+
+    <!-- Section 5: Google Services -->
+    <div class="section">
+        <h2>5. Google Services Integration</h2>
+        <p>NotyCaption Pro Web uses the following Google services:</p>
+        <table class="data-table">
+            <thead>
+                <tr><th>Service</th><th>Permissions Required</th><th>Purpose</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Google OAuth</td><td>profile, email</td><td>User identification</td></tr>
+                <tr><td>Google Drive API</td><td>drive.file</td><td>Store/retrieve audio and output files</td></tr>
+                <tr><td>Google Colab</td><td>None (opens in new tab)</td><td>Cloud processing (Whisper/Spleeter)</td></tr>
+            </tbody>
+        </table>
+        <p><strong>We only request the minimum required permissions:</strong></p>
+        <ul>
+            <li><code>drive.file</code> - Access only to files created by this app</li>
+            <li><code>userinfo.profile</code> - To display your name and avatar</li>
+        </ul>
+    </div>
+
+    <!-- Section 6: Third-Party Services -->
+    <div class="section">
+        <h2>6. Third-Party Services</h2>
+        <table class="data-table">
+            <thead>
+                <tr><th>Service</th><th>Purpose</th><th>Data Sent</th><th>Privacy Policy</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>Google Drive API</td><td>File storage</td><td>Audio files, subtitle files</td><td><a href="https://policies.google.com/privacy">View</a></td></tr>
+                <tr><td>Google Colab</td><td>AI processing</td><td>Audio file content (temporary)</td><td><a href="https://colab.research.google.com/notebooks/privacy.ipynb">View</a></td></tr>
+                <tr><td>Hugging Face</td><td>Model hosting</td><td>None (models loaded by Colab)</td><td><a href="https://huggingface.co/privacy">View</a></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Section 7: Your Rights -->
+    <div class="section">
+        <h2>7. Your Rights</h2>
+        <p>You have the right to:</p>
+        <ul>
+            <li>✅ Use the application without creating an account (limited functionality)</li>
+            <li>✅ Revoke Google access at any time via <a href="https://myaccount.google.com/permissions" style="color:#00e5ff;">Google Account Permissions</a></li>
+            <li>✅ Clear all browser data (settings, tokens) via browser settings</li>
+            <li>✅ Delete all files from your Google Drive manually</li>
+            <li>✅ Review the complete source code on <a href="https://github.com/NotY215/NotyCaption-Official" style="color:#00e5ff;">GitHub</a></li>
+        </ul>
+    </div>
+
+    <!-- Section 8: Data Retention -->
+    <div class="section">
+        <h2>8. Data Retention</h2>
+        <ul>
+            <li><strong>Browser Storage:</strong> Remains until you clear browser data or logout</li>
+            <li><strong>Google Drive files:</strong> Temporary files are deleted after processing. User files remain until you delete them.</li>
+            <li><strong>No server-side storage:</strong> We operate no backend servers.</li>
+        </ul>
+    </div>
+
+    <!-- Section 9: Disclaimer of Liability -->
+    <div class="section" id="disclaimer">
+        <h2>9. Disclaimer of Liability - READ CAREFULLY</h2>
+        <div class="disclaimer-box">
+            <h3>⚠️ TO THE MAXIMUM EXTENT PERMITTED BY LAW:</h3>
+            <ul>
+                <li><strong>THIS SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE"</strong></li>
+                <li><strong>YOU USE THIS SOFTWARE AT YOUR OWN RISK</strong></li>
+                <li><strong>WE ARE NOT RESPONSIBLE FOR ANY DATA LOSS, DAMAGE, OR CORRUPTION</strong></li>
+                <li><strong>WE ARE NOT RESPONSIBLE FOR ANY UNAUTHORIZED ACCESS TO YOUR GOOGLE ACCOUNT</strong></li>
+                <li><strong>WE ARE NOT RESPONSIBLE FOR ANY THIRD-PARTY SERVICE (Google, Colab) TERMINATION, DATA BREACH, OR SERVICE DISRUPTION</strong></li>
+                <li><strong>WE ARE NOT RESPONSIBLE FOR ANY CHARGES INCURRED FROM GOOGLE SERVICES (if applicable)</strong></li>
+            </ul>
+        </div>
+        <div class="agreement-box">
+            <p><strong>BY USING THIS SOFTWARE, YOU AGREE THAT YOU CANNOT AND WILL NOT TAKE ANY LEGAL ACTION AGAINST NOTY215 OR ANY CONTRIBUTORS FOR ANY REASON RELATED TO THIS SOFTWARE.</strong></p>
+        </div>
+    </div>
+
+    <!-- Section 10: Children's Privacy -->
+    <div class="section">
+        <h2>10. Children's Privacy</h2>
+        <p>NotyCaption Pro is not intended for children under 13 years of age. We do not knowingly collect information from children under 13.</p>
+    </div>
+
+    <!-- Section 11: Changes to Policy -->
+    <div class="section">
+        <h2>11. Changes to Privacy Policy</h2>
+        <p>We may update this Privacy Policy from time to time. We will notify you of any changes by updating the "Last Updated" date at the top of this policy. Your continued use of the service after changes constitutes acceptance of the revised policy.</p>
+    </div>
+
+    <!-- Section 12: Governing Law -->
+    <div class="section">
+        <h2>12. Governing Law</h2>
+        <p>This Privacy Policy shall be governed by and construed in accordance with the laws of <strong>INDIA</strong>, without regard to its conflict of law provisions. Any dispute arising under this Policy shall be resolved exclusively in the courts located in <strong>PATNA, BIHAR, INDIA</strong>.</p>
+    </div>
+
+    <!-- Section 13: Contact -->
+    <div class="section" id="contact">
+        <h2>13. Contact Information</h2>
+        <p>For privacy concerns or questions:</p>
+        <ul>
+            <li>👨‍💻 <strong>Developer:</strong> NotY215</li>
+            <li>🐙 <strong>GitHub:</strong> <a href="https://github.com/NotY215" style="color:#00e5ff;">https://github.com/NotY215</a></li>
+            <li>📧 <strong>Email:</strong> NotY215@outlook.com</li>
+        </ul>
+    </div>
+
+    <!-- Section 14: Acknowledgment -->
+    <div class="agreement-box">
+        <p><strong>🔒 BY USING NOTYCAPTION PRO WEB, YOU ACKNOWLEDGE THAT YOU HAVE READ, UNDERSTOOD, AND AGREE TO BE BOUND BY THIS PRIVACY POLICY AND THE ASSOCIATED TERMS AND CONDITIONS.</strong></p>
+        <p style="margin-top: 15px;"><strong>⚠️ YOU ALSO AGREE THAT YOU ARE USING THIS SOFTWARE AT YOUR OWN RISK AND THAT YOU CANNOT TAKE ANY LEGAL ACTION AGAINST THE DEVELOPERS.</strong></p>
+    </div>
+
+    <div class="footer">
+        <p>© 2025-2026 NotY215. All rights reserved. | Web Version 6.4</p>
+        <p>Made with ❤️ in India | <a href="#">Back to Top</a></p>
+    </div>
+</div>
+
+<div class="scroll-top" onclick="window.scrollTo({top: 0, behavior: 'smooth'})"></div>
+
+<script>
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            e.preventDefault();
+            const target = document.querySelector(this.getAttribute('href'));
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth' });
+            }
+        });
+    });
+</script>
+</body>
+</html>
