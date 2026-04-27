@@ -9,6 +9,10 @@ async function openNotebookInColab(notebookDriveId) {
     const colabUrl = `https://colab.research.google.com/drive/${notebookDriveId}`;
     console.log(`📓 Opening Colab notebook: ${colabUrl}`);
     colabWindow = window.open(colabUrl, '_blank');
+    if (!colabWindow) {
+        console.warn('Popup blocked! Please allow popups for this site');
+        alert('⚠️ Popup blocked! Please allow popups for this site to open Colab.\n\nYou can also click the "Open in Colab" button manually if the tab doesn\'t open.');
+    }
     return colabWindow;
 }
 
@@ -62,6 +66,8 @@ function startPolling(operationId, operationType, onSuccess, onError) {
             clearInterval(pollInterval);
             if (onError) onError('Timeout! Please check Colab for results.');
             pollInterval = null;
+        } else if (attempts % 12 === 0) {
+            console.log(`⏳ Waiting for results... (${attempts * 5} seconds elapsed)`);
         }
     }, 5000);
 }
@@ -79,7 +85,7 @@ async function createAndOpenColabNotebook(operationType, params, onSuccess, onEr
     console.log(`🚀 Creating ${operationType} notebook with ID: ${operationId}`);
     
     try {
-        const notebookJSONString = getNotebookContent(operationType, {
+        const result = getNotebookContent(operationType, {
             audioId: params.audioId,
             language: params.language || 'en',
             wordsPerLine: params.wordsPerLine || '5',
@@ -87,7 +93,20 @@ async function createAndOpenColabNotebook(operationType, params, onSuccess, onEr
             operationId: operationId
         });
         
-        const notebookName = `NotyCaption_${operationType}_${operationId}.ipynb`;
+        let notebookJSONString, notebookName;
+        
+        if (typeof result === 'object' && result.content) {
+            notebookJSONString = result.content;
+            notebookName = result.notebookName;
+        } else {
+            notebookJSONString = result;
+            notebookName = `NotyCaption_${operationType}_${operationId}.ipynb`;
+        }
+        
+        if (!notebookJSONString) {
+            throw new Error('Failed to get notebook content');
+        }
+        
         console.log(`📝 Creating notebook: ${notebookName}`);
         
         const notebookDriveId = await uploadNotebookToDrive(notebookJSONString, notebookName);
@@ -98,6 +117,7 @@ async function createAndOpenColabNotebook(operationType, params, onSuccess, onEr
             operationId,
             operationType,
             notebookDriveId,
+            notebookName,
             timestamp: Date.now()
         }));
         
@@ -112,4 +132,9 @@ async function createAndOpenColabNotebook(operationType, params, onSuccess, onEr
     }
 }
 
+// Export functions
 window.createAndOpenColabNotebook = createAndOpenColabNotebook;
+window.openNotebookInColab = openNotebookInColab;
+window.startPolling = startPolling;
+
+console.log('✅ colab.js loaded');

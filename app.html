@@ -12,6 +12,9 @@
     <script src="drive.js"></script>
     <script src="ipynb.js"></script>
     <script src="colab.js"></script>
+    <script src="rename.js"></script>
+    <script src="audioManager.js"></script>
+    <script src="sectionManager.js"></script>
     
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
@@ -47,7 +50,8 @@
         .control-group{margin-bottom:20px}
         .control-group label{display:block;margin-bottom:8px;font-size:13px;color:#aaa}
         select,input{width:100%;padding:12px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.2);border-radius:10px;color:white}
-        .upload-area{border:2px dashed rgba(255,255,255,0.3);border-radius:15px;padding:30px;text-align:center;cursor:pointer;margin-bottom:20px;transition:all 0.3s}
+        .upload-container{display:flex;gap:10px;margin-bottom:20px}
+        .upload-area{flex:1;border:2px dashed rgba(255,255,255,0.3);border-radius:15px;padding:20px;text-align:center;cursor:pointer;transition:all 0.3s}
         .upload-area:hover{border-color:#00e5ff;background:rgba(0,229,255,0.05)}
         .btn{width:100%;padding:12px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:12px;transition:all 0.3s}
         .btn:hover{transform:translateY(-2px)}
@@ -56,6 +60,7 @@
         .btn-success{background:linear-gradient(90deg,#00c853,#00e5ff);color:#1a1a2e}
         .btn-danger{background:linear-gradient(90deg,#ff4081,#ff6b6b);color:white}
         .btn:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+        .unload-btn{width:auto;padding:0 25px;margin-bottom:0}
         .progress-container{margin-top:20px;display:none}
         .progress-bar{width:100%;height:6px;background:rgba(255,255,255,0.1);border-radius:3px;overflow:hidden}
         .progress-fill{width:0%;height:100%;background:linear-gradient(90deg,#00e5ff,#00c853);transition:width .3s}
@@ -87,6 +92,12 @@
         <h1>NotyCaption Pro</h1>
     </div>
     <div class="nav-links">
+        <a data-section="home">Home</a>
+        <a data-section="game">Game</a>
+        <a data-section="about">About</a>
+        <a data-section="policies">Privacy</a>
+        <a data-section="terms">Terms</a>
+        <a data-section="contact">Contact</a>
         <a onclick="logout()">Logout</a>
     </div>
 </nav>
@@ -96,12 +107,12 @@
     <div class="sidebar">
         <h3>📁 Explore</h3>
         <div class="sidebar-links">
-            <a onclick="showSection('home')">🏠 Home</a>
-            <a onclick="showSection('game')">🎮 Arrow Dash Game</a>
-            <a onclick="showSection('about')">📖 About</a>
-            <a onclick="showSection('policies')">🔒 Privacy Policy</a>
-            <a onclick="showSection('terms')">📜 Terms & Conditions</a>
-            <a onclick="showSection('contact')">📞 Contact</a>
+            <a data-section="home">🏠 Home</a>
+            <a data-section="game">🎮 Arrow Dash Game</a>
+            <a data-section="about">📖 About</a>
+            <a data-section="policies">🔒 Privacy Policy</a>
+            <a data-section="terms">📜 Terms & Conditions</a>
+            <a data-section="contact">📞 Contact</a>
         </div>
     </div>
     
@@ -116,7 +127,7 @@
         </div>
         
         <!-- Home Section (Caption Generator) -->
-        <div id="homeSection">
+        <div id="homeSection" class="section-container" style="display:block">
             <div class="main-grid">
                 <div class="left-panel">
                     <div class="audio-player">
@@ -139,9 +150,13 @@
                 </div>
 
                 <div class="right-panel">
-                    <div class="upload-area" id="uploadArea">
-                        📁 Click or Drag & Drop Audio (Max 50MB)<br>
-                        <small style="color:#888">MP3, WAV, M4A, FLAC, OGG, AAC</small>
+                    <!-- SINGLE upload container with unload button -->
+                    <div class="upload-container">
+                        <div class="upload-area" id="uploadArea">
+                            📁 Click or Drag & Drop Audio (Max 50MB)<br>
+                            <small style="color:#888">MP3, WAV, M4A, FLAC, OGG, AAC</small>
+                        </div>
+                        <button class="btn btn-danger unload-btn" id="unloadAudioBtn">🗑️ Unload</button>
                     </div>
                     <input type="file" id="audioFile" accept=".mp3,.wav,.m4a,.flac,.ogg,.aac" style="display:none">
 
@@ -192,15 +207,15 @@
         </div>
         
         <!-- Game Section -->
-        <div id="gameSection" class="section-container">
+        <div id="gameSection" class="section-container" style="display:none">
             <div class="section-header">
                 <h2>🎮 ARROW DASH - Rhythm Platformer</h2>
             </div>
-            <iframe src="game.html" class="game-iframe"></iframe>
+            <iframe id="gameIframe" src="game.html" class="game-iframe"></iframe>
         </div>
         
         <!-- About Section -->
-        <div id="aboutSection" class="section-container">
+        <div id="aboutSection" class="section-container" style="display:none">
             <div class="section-header">
                 <h2>📖 About NotyCaption Pro</h2>
             </div>
@@ -208,7 +223,7 @@
         </div>
         
         <!-- Privacy Policy Section -->
-        <div id="policiesSection" class="section-container">
+        <div id="policiesSection" class="section-container" style="display:none">
             <div class="section-header">
                 <h2>🔒 Privacy Policy</h2>
             </div>
@@ -216,7 +231,7 @@
         </div>
         
         <!-- Terms Section -->
-        <div id="termsSection" class="section-container">
+        <div id="termsSection" class="section-container" style="display:none">
             <div class="section-header">
                 <h2>📜 Terms & Conditions</h2>
             </div>
@@ -224,7 +239,7 @@
         </div>
         
         <!-- Contact Section -->
-        <div id="contactSection" class="section-container">
+        <div id="contactSection" class="section-container" style="display:none">
             <div class="section-header">
                 <h2>📞 Contact Me</h2>
             </div>
@@ -246,7 +261,6 @@
 <div class="modal" id="modal"><div class="modal-content"><h3 id="modalTitle">Processing</h3><p id="modalMessage">Please wait...</p><div class="spinner"></div><button class="btn btn-secondary" onclick="closeModal()">Close</button></div></div>
 <div class="toast" id="toast"></div>
 
-<script src="config.js"></script>
 <script>
     // Check if user is logged in
     function isLoggedIn() {
@@ -269,26 +283,99 @@
         window.location.href = 'index.html';
     }
     
-    // Section display function
-    function showSection(section) {
-        const sections = ['home', 'game', 'about', 'policies', 'terms', 'contact'];
-        sections.forEach(s => {
-            const el = document.getElementById(`${s}Section`);
-            if (el) el.style.display = 'none';
-        });
-        const target = document.getElementById(`${section}Section`);
-        if (target) target.style.display = 'block';
-        window.location.hash = section;
+    // Global functions
+    window.showToast = function(msg, isError = false) {
+        const toast = document.getElementById('toast');
+        toast.textContent = msg;
+        toast.style.backgroundColor = isError ? 'rgba(255,64,129,0.95)' : 'rgba(0,0,0,0.95)';
+        toast.style.display = 'block';
+        setTimeout(() => toast.style.display = 'none', 3000);
+    };
+    
+    window.showProgress = function(show, msg = 'Processing...', percent = 0) {
+        const container = document.getElementById('progressContainer');
+        const statusText = document.getElementById('statusText');
+        const fill = document.getElementById('progressFill');
+        if (container) container.style.display = show ? 'block' : 'none';
+        if (statusText && show) statusText.textContent = msg;
+        if (fill && show) fill.style.width = percent + '%';
+    };
+    
+    window.enableCaptionButtons = function(enabled) {
+        const enhance = document.getElementById('enhanceBtn');
+        const generate = document.getElementById('generateBtn');
+        if (enhance) enhance.disabled = !enabled;
+        if (generate) generate.disabled = !enabled;
+    };
+    
+    // Wait for AudioManager to be ready
+    let audioManagerReady = false;
+    
+    function initAudioManager() {
+        if (typeof AudioManager !== 'undefined') {
+            const success = AudioManager.init('uploadArea', 'audioFile', 'audioPlayer', 'fileInfo');
+            if (success) {
+                audioManagerReady = true;
+                console.log('✅ AudioManager initialized');
+                
+                // Set callback for when audio is uploaded
+                AudioManager.setOnUploadComplete(function(audioId, audioName) {
+                    window.enableCaptionButtons(true);
+                    window.currentAudioId = audioId;
+                    window.currentAudioName = audioName;
+                });
+            }
+        }
     }
     
-    // Handle URL hash
-    function handleHash() {
-        const hash = window.location.hash.substring(1);
-        if (hash && ['home', 'game', 'about', 'policies', 'terms', 'contact'].includes(hash)) {
-            showSection(hash);
-        } else {
-            showSection('home');
-        }
+    // Try to initialize immediately, if not, wait
+    if (typeof AudioManager !== 'undefined') {
+        initAudioManager();
+    } else {
+        setTimeout(initAudioManager, 500);
+    }
+    
+    // Unload button handler
+    const unloadBtn = document.getElementById('unloadAudioBtn');
+    if (unloadBtn) {
+        unloadBtn.onclick = () => {
+            if (typeof AudioManager !== 'undefined' && AudioManager.unloadAudio) {
+                AudioManager.unloadAudio();
+                window.currentAudioId = null;
+                window.currentAudioName = null;
+                window.enableCaptionButtons(false);
+                window.showToast('✅ Audio unloaded');
+            } else {
+                // Fallback unload
+                const audioPlayer = document.getElementById('audioPlayer');
+                const fileInfo = document.getElementById('fileInfo');
+                const captionsList = document.getElementById('captionsList');
+                const enhancedSection = document.getElementById('enhancedSection');
+                const exportBtn = document.getElementById('exportBtn');
+                const enhanceBtn = document.getElementById('enhanceBtn');
+                const generateBtn = document.getElementById('generateBtn');
+                
+                if (audioPlayer) {
+                    audioPlayer.pause();
+                    audioPlayer.src = '';
+                }
+                if (fileInfo) fileInfo.innerHTML = 'No file loaded';
+                if (captionsList) captionsList.innerHTML = '<p style="color:#666;text-align:center">No captions yet</p>';
+                if (enhancedSection) enhancedSection.style.display = 'none';
+                if (exportBtn) exportBtn.disabled = true;
+                if (enhanceBtn) enhanceBtn.disabled = true;
+                if (generateBtn) generateBtn.disabled = true;
+                
+                window.currentAudioId = null;
+                window.currentAudioName = null;
+                window.showToast('✅ Audio unloaded');
+            }
+        };
+    }
+    
+    // Initialize Section Manager
+    if (typeof SectionManager !== 'undefined') {
+        SectionManager.init();
     }
     
     // Load user info
@@ -333,8 +420,6 @@
     }
     
     loadUserInfo();
-    handleHash();
-    window.addEventListener('hashchange', handleHash);
     
     // Contact Form
     const contactForm = document.getElementById('contactForm');
@@ -355,28 +440,12 @@
         });
     }
     
-    // Global variables
-    let currentAudioDriveId = null;
+    // Global variables for captions
     let currentEnhancedFileUrl = null;
     let currentSubtitles = [];
     let isProcessing = false;
-    
-    function showToast(msg, isError = false) {
-        const toast = document.getElementById('toast');
-        toast.textContent = msg;
-        toast.style.backgroundColor = isError ? 'rgba(255,64,129,0.95)' : 'rgba(0,0,0,0.95)';
-        toast.style.display = 'block';
-        setTimeout(() => toast.style.display = 'none', 3000);
-    }
-    
-    function showProgress(show, msg = 'Processing...', percent = 0) {
-        const container = document.getElementById('progressContainer');
-        const statusText = document.getElementById('statusText');
-        const fill = document.getElementById('progressFill');
-        if (container) container.style.display = show ? 'block' : 'none';
-        if (statusText && show) statusText.textContent = msg;
-        if (fill && show) fill.style.width = percent + '%';
-    }
+    window.currentAudioId = null;
+    window.currentAudioName = null;
     
     function showModal(title, msg) {
         document.getElementById('modalTitle').textContent = title;
@@ -386,13 +455,6 @@
     
     function closeModal() {
         document.getElementById('modal').style.display = 'none';
-    }
-    
-    function enableButtons(enabled) {
-        const enhance = document.getElementById('enhanceBtn');
-        const generate = document.getElementById('generateBtn');
-        if (enhance) enhance.disabled = !enabled || !currentAudioDriveId;
-        if (generate) generate.disabled = !enabled || !currentAudioDriveId;
     }
     
     function displayCaptions(content, filename) {
@@ -427,11 +489,11 @@
             container.appendChild(div);
         });
         document.getElementById('exportBtn').disabled = false;
-        showToast(`✅ ${currentSubtitles.length} captions loaded!`);
+        window.showToast(`✅ ${currentSubtitles.length} captions loaded!`);
     }
     
     function exportCaptions() {
-        if (!currentSubtitles.length) { showToast('No captions', true); return; }
+        if (!currentSubtitles.length) { window.showToast('No captions', true); return; }
         const format = document.getElementById('outputFormat').value;
         let content = format === 'srt' 
             ? currentSubtitles.map((s,i) => `${i+1}\n${s.start} --> ${s.end}\n${s.text}\n`).join('\n')
@@ -444,7 +506,7 @@
         a.download = `captions.${format}`;
         a.click();
         URL.revokeObjectURL(a.href);
-        showToast('✅ Exported!');
+        window.showToast('✅ Exported!');
     }
     
     function downloadEnhancedAudio() {
@@ -453,114 +515,13 @@
             a.href = currentEnhancedFileUrl;
             a.download = 'enhanced_vocals.wav';
             a.click();
-            showToast('Downloading...');
+            window.showToast('Downloading...');
         }
-    }
-    
-    // FIXED: Audio upload with proper Drive API
-    async function handleFileUpload(file) {
-        if (!file) return;
-        
-        const allowedTypes = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.aac'];
-        const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
-        if (!allowedTypes.includes(ext)) {
-            showToast('❌ Please upload audio file (MP3, WAV, M4A, FLAC, OGG, AAC)', true);
-            return;
-        }
-        if (file.size > 50 * 1024 * 1024) {
-            showToast('❌ File too large! Max 50MB', true);
-            return;
-        }
-        
-        const audioPlayer = document.getElementById('audioPlayer');
-        const fileInfo = document.getElementById('fileInfo');
-        
-        audioPlayer.src = URL.createObjectURL(file);
-        fileInfo.innerHTML = `📄 ${file.name} - Uploading to Google Drive...`;
-        
-        showProgress(true, 'Uploading to Google Drive...', 20);
-        
-        try {
-            const token = localStorage.getItem('notycaption_access_token');
-            if (!token) throw new Error('Please login again');
-            
-            // Create FormData for multipart upload
-            const formData = new FormData();
-            const metadata = {
-                name: file.name,
-                mimeType: file.type,
-                parents: ['root']
-            };
-            formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-            formData.append('file', file);
-            
-            const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: formData
-            });
-            
-            if (!response.ok) {
-                const error = await response.text();
-                throw new Error(`Upload failed: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            currentAudioDriveId = data.id;
-            
-            fileInfo.innerHTML = `📄 ${file.name} - ✅ Uploaded to Google Drive (ID: ${currentAudioDriveId.substring(0, 15)}...)`;
-            showProgress(false);
-            showToast('✅ Audio uploaded! Click "Generate Captions" to start AI processing');
-            
-            document.getElementById('generateBtn').disabled = false;
-            document.getElementById('enhanceBtn').disabled = false;
-            
-        } catch (err) {
-            console.error('Upload error:', err);
-            showProgress(false);
-            showToast('❌ Upload failed: ' + err.message, true);
-            fileInfo.innerHTML = `📄 ${file.name} - ❌ Upload failed`;
-            audioPlayer.src = '';
-        }
-    }
-    
-    // Setup file upload handlers
-    function setupFileUpload() {
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('audioFile');
-        
-        uploadArea.addEventListener('click', () => fileInput.click());
-        
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('drag-over');
-        });
-        
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('drag-over');
-        });
-        
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('drag-over');
-            const file = e.dataTransfer.files[0];
-            if (file && (file.type.startsWith('audio/') || /\.(mp3|wav|m4a|flac|ogg|aac)$/i.test(file.name))) {
-                handleFileUpload(file);
-            } else {
-                showToast('Please drop an audio file', true);
-            }
-        });
-        
-        fileInput.addEventListener('change', (e) => {
-            if (e.target.files && e.target.files[0]) {
-                handleFileUpload(e.target.files[0]);
-            }
-        });
     }
     
     async function generateCaptions() {
-        if (!currentAudioDriveId) {
-            showToast('❌ Please upload audio first', true);
+        if (!window.currentAudioId) {
+            window.showToast('❌ Please upload audio first', true);
             return;
         }
         if (isProcessing) return;
@@ -571,7 +532,7 @@
         const outputFormat = document.getElementById('outputFormat').value;
         
         showModal('🎬 Generating AI Captions', `Processing with Whisper AI...\nLanguage: ${language === 'auto' ? 'Auto Detect' : language}\nThis may take a few minutes.`);
-        showProgress(true, 'Preparing Colab notebook...', 10);
+        window.showProgress(true, 'Preparing Colab notebook...', 10);
         
         try {
             if (typeof createAndOpenColabNotebook === 'undefined') {
@@ -579,7 +540,8 @@
             }
             
             await createAndOpenColabNotebook('generate', {
-                audioId: currentAudioDriveId,
+                audioId: window.currentAudioId,
+                audioName: window.currentAudioName,
                 language: language,
                 wordsPerLine: wordsPerLine,
                 outputFormat: outputFormat
@@ -592,73 +554,76 @@
                     });
                     const content = await fileResponse.text();
                     displayCaptions(content, fileName);
-                    showProgress(false);
+                    window.showProgress(false);
                     closeModal();
-                    showToast('✅ Captions generated successfully!');
+                    window.showToast('✅ Captions generated successfully!');
                 } catch (err) {
-                    showToast('❌ Download failed: ' + err.message, true);
+                    window.showToast('❌ Download failed: ' + err.message, true);
                 }
                 isProcessing = false;
             },
             (error) => {
-                showToast('❌ Failed: ' + error, true);
-                showProgress(false);
+                window.showToast('❌ Failed: ' + error, true);
+                window.showProgress(false);
                 closeModal();
                 isProcessing = false;
             });
             
-            showProgress(true, 'Opening Google Colab...', 60);
-            showToast('📓 Colab notebook opened! Click "Run All" to start processing.', false);
+            window.showProgress(true, 'Opening Google Colab...', 60);
+            window.showToast('📓 Colab notebook opened! Click "Run All" to start processing.', false);
             
         } catch (error) {
-            showToast('❌ Error: ' + error.message, true);
+            window.showToast('❌ Error: ' + error.message, true);
             isProcessing = false;
-            showProgress(false);
+            window.showProgress(false);
             closeModal();
         }
     }
     
     async function enhanceAudio() {
-        if (!currentAudioDriveId) {
-            showToast('❌ Please upload audio first', true);
+        if (!window.currentAudioId) {
+            window.showToast('❌ Please upload audio first', true);
             return;
         }
         if (isProcessing) return;
         
         isProcessing = true;
         showModal('🎤 Vocal Enhancement', 'Extracting vocals with Spleeter AI...\nThis may take a few minutes.');
-        showProgress(true, 'Preparing vocal extraction...', 10);
+        window.showProgress(true, 'Preparing vocal extraction...', 10);
         
         try {
             if (typeof createAndOpenColabNotebook === 'undefined') {
                 throw new Error('Colab module not loaded. Please refresh.');
             }
             
-            await createAndOpenColabNotebook('enhance', { audioId: currentAudioDriveId },
+            await createAndOpenColabNotebook('enhance', { 
+                audioId: window.currentAudioId,
+                audioName: window.currentAudioName
+            },
             async (fileId, fileName) => {
                 const token = localStorage.getItem('notycaption_access_token');
                 currentEnhancedFileUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&access_token=${token}`;
                 document.getElementById('enhancedPlayer').src = currentEnhancedFileUrl;
                 document.getElementById('enhancedSection').style.display = 'block';
-                showProgress(false);
+                window.showProgress(false);
                 closeModal();
-                showToast('✅ Vocal extraction complete! Enhanced audio ready.');
+                window.showToast('✅ Vocal extraction complete! Enhanced audio ready.');
                 isProcessing = false;
             },
             (error) => {
-                showToast('❌ Failed: ' + error, true);
-                showProgress(false);
+                window.showToast('❌ Failed: ' + error, true);
+                window.showProgress(false);
                 closeModal();
                 isProcessing = false;
             });
             
-            showProgress(true, 'Opening Google Colab...', 60);
-            showToast('📓 Colab notebook opened! Click "Run All" to start vocal extraction.', false);
+            window.showProgress(true, 'Opening Google Colab...', 60);
+            window.showToast('📓 Colab notebook opened! Click "Run All" to start vocal extraction.', false);
             
         } catch (error) {
-            showToast('❌ Error: ' + error.message, true);
+            window.showToast('❌ Error: ' + error.message, true);
             isProcessing = false;
-            showProgress(false);
+            window.showProgress(false);
             closeModal();
         }
     }
@@ -683,8 +648,6 @@
         }));
     }
     
-    // Initialize
-    setupFileUpload();
     loadSettings();
     
     document.getElementById('wordsPerLine').addEventListener('change', saveSettings);
